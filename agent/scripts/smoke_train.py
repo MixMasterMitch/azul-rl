@@ -18,7 +18,7 @@ def main() -> None:
             arch="flat",
             selfplay_games=8,
             selfplay_sims=2,
-            selfplay_max_turns=1000,
+            selfplay_max_turns=100,
             selfplay_turns_per_player=0,
             replay_capacity=10_000,
             learner_batch=16,

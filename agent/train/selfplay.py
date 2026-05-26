@@ -147,6 +147,7 @@ def run_selfplay(
                 dirichlet_alpha=dirichlet_alpha,
                 dirichlet_mix=dirichlet_mix,
                 q_scale=q_scale,
+                precomputed=(global_feat, source_feat, legal_mask),
             )
 
             alive_idx = alive.nonzero(as_tuple=True)[0]

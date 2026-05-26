@@ -3,8 +3,8 @@
 Uses a "Gumbel root + 1-ply learned value" scheme:
 1. Compute prior logits from the policy head
 2. Add Gumbel noise to select top-K candidate actions at the root
-3. For each candidate, expand one step in the batched engine
-4. Score each child state with the value network
+3. Expand all B×K children in one batched engine step
+4. Score child states with a single value-network pass
 5. Combine Q-estimates with priors to select final action
 6. Produce an improved policy as the training target
 """
@@ -32,13 +32,61 @@ def _root_value_index(
     parent_cp: torch.Tensor,
     child_cp: torch.Tensor,
 ) -> torch.Tensor:
-    """Column index for the root player's value in the child's rotated view.
-
-    The encoder rotates seats so seat 0 = child's current player. The root
-    player (parent's current player) sits at index ``(parent_cp - child_cp) % MAX_PLAYERS``.
-    """
+    """Column index for the root player's value in the child's rotated view."""
     diff = parent_cp.to(torch.long) - child_cp.to(torch.long)
     return diff.remainder(BE.MAX_PLAYERS)
+
+
+def _safe_root_actions(topk_idx: torch.Tensor, legal: torch.Tensor) -> torch.Tensor:
+    """Remap any illegal top-k slot to a guaranteed legal fallback action."""
+    any_legal = legal.to(torch.int64).argmax(dim=-1, keepdim=True)
+    topk_legal = legal.gather(1, topk_idx)
+    return torch.where(topk_legal, topk_idx, any_legal.expand_as(topk_idx))
+
+
+def _apply_dirichlet_noise(
+    prior_logits: torch.Tensor,
+    legal_mask: torch.Tensor,
+    dirichlet_alpha: float,
+    dirichlet_mix: float,
+) -> torch.Tensor:
+    """Vectorized Dirichlet exploration noise over legal actions."""
+    legal_f = legal_mask.to(prior_logits.dtype)
+    gamma = torch._standard_gamma(torch.full_like(legal_f, dirichlet_alpha))
+    gamma = gamma * legal_f
+    gamma = gamma / gamma.sum(dim=-1, keepdim=True).clamp_min(1e-9)
+    prior_probs = torch.softmax(prior_logits.masked_fill(~legal_mask, -1e9), dim=-1)
+    mixed = (1.0 - dirichlet_mix) * prior_probs + dirichlet_mix * gamma
+    return torch.log(mixed.clamp_min(1e-9))
+
+
+def _evaluate_root_children_batched(
+    engine: BE.BatchedEngine,
+    net: M.AzulNet,
+    topk_idx: torch.Tensor,
+    legal: torch.Tensor,
+    num_players: int,
+) -> torch.Tensor:
+    """Expand all root children in one B×K batched engine/value pass."""
+    B = engine.batch_size
+    K = topk_idx.shape[1]
+    q_values = torch.full((B, K), float("-inf"), dtype=torch.float32, device=engine.device)
+    if K == 0:
+        return q_values
+
+    safe_topk = _safe_root_actions(topk_idx, legal)
+    parent_cp = engine.current_player.to(torch.long).repeat_interleave(K)
+    child_engine = engine.repeat_interleave(K)
+    child_engine.step(safe_topk.reshape(-1))
+
+    g_child, s_child = ENC.encode_state(child_engine)
+    with torch.no_grad():
+        child_value = net.forward_value(g_child, s_child, num_players)
+
+    child_cp = child_engine.current_player.to(torch.long)
+    val_idx = _root_value_index(parent_cp, child_cp)
+    q_values = child_value.gather(1, val_idx.unsqueeze(-1)).squeeze(-1).reshape(B, K)
+    return q_values
 
 
 def gumbel_root_act(
@@ -50,39 +98,36 @@ def gumbel_root_act(
     dirichlet_alpha: float = 0.0,
     dirichlet_mix: float = 0.0,
     q_scale: float = 10.0,
+    precomputed: tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Select actions for each game in the batch.
 
     Returns:
         actions: (B,) int64 — chosen action per game
         improved_policy: (B, NUM_ACTIONS) float — training target
+
+    When ``precomputed`` is provided as ``(global_feat, source_feat, legal_mask)``,
+    skips re-encoding the root state (used by self-play).
     """
     B = engine.batch_size
     device = engine.device
     nP = engine.num_players
+    neg_inf = torch.finfo(torch.float32).min
 
-    global_feat, source_feat = ENC.encode_state(engine)
-    legal_mask = engine.legal_action_mask()
+    if precomputed is None:
+        global_feat, source_feat = ENC.encode_state(engine)
+        legal_mask = engine.legal_action_mask()
+    else:
+        global_feat, source_feat, legal_mask = precomputed
 
     with torch.no_grad():
         prior_logits, _root_value = net(global_feat, source_feat, legal_mask, nP)
 
     prior = prior_logits / max(temperature, 1e-6)
-    neg_inf = torch.finfo(prior.dtype).min
 
     if dirichlet_alpha > 0 and dirichlet_mix > 0:
-        noise = torch.zeros_like(prior)
-        for b in range(B):
-            legal_indices = legal_mask[b].nonzero(as_tuple=True)[0]
-            if len(legal_indices) > 0:
-                alpha = torch.full((len(legal_indices),), dirichlet_alpha, device=device)
-                dir_noise = torch.distributions.Dirichlet(alpha).sample()
-                log_noise = torch.log(dir_noise + 1e-9)
-                noise[b, legal_indices] = log_noise * dirichlet_mix
-        prior = prior + noise
+        prior = _apply_dirichlet_noise(prior, legal_mask, dirichlet_alpha, dirichlet_mix)
 
-    # Fixed top-K width per game (do NOT use batch min legal count: ended games
-    # have zero legal moves and would force K=0 for the entire batch).
     k = min(num_sims, NUM_ACTIONS)
     gumbel = _sample_gumbel((B, NUM_ACTIONS), device) * root_noise_scale
     perturbed = (prior + gumbel).masked_fill(~legal_mask, neg_inf)
@@ -93,30 +138,15 @@ def gumbel_root_act(
         improved = torch.zeros((B, NUM_ACTIONS), dtype=torch.float32, device=device)
         return actions, improved
 
-    top_vals, top_idx = perturbed.topk(k, dim=-1)  # (B, k)
+    top_vals, top_idx = perturbed.topk(k, dim=-1)
 
-    parent_cp = engine.current_player.long()
-    q_values = torch.full((B, k), float("-inf"), dtype=torch.float32, device=device)
-
-    for ki in range(k):
-        child = engine.clone()
-        child.step(top_idx[:, ki])
-
-        g_child, s_child = ENC.encode_state(child)
-        legal_child = child.legal_action_mask()
-        with torch.no_grad():
-            _, child_value = net(g_child, s_child, legal_child, nP)
-
-        child_cp = child.current_player.long()
-        val_idx = _root_value_index(parent_cp, child_cp)
-        q_values[:, ki] = child_value.gather(1, val_idx.unsqueeze(-1)).squeeze(-1)
+    q_values = _evaluate_root_children_batched(engine, net, top_idx, legal_mask, nP)
 
     combined = top_vals + q_scale * q_values
     combined = combined.masked_fill(~torch.isfinite(combined), neg_inf)
     best_k = combined.argmax(dim=-1)
     actions = top_idx.gather(1, best_k.unsqueeze(-1)).squeeze(-1)
 
-    # Games with no legal moves (ended): fallback action unused by engine.step
     fallback = prior.masked_fill(~legal_mask, neg_inf).argmax(dim=-1)
     actions = torch.where(has_legal, actions, fallback)
 

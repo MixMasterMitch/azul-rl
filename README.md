@@ -22,7 +22,7 @@ pytest
 # Smoke test training (CPU, ~30 seconds)
 python -m agent.scripts.smoke_train
 
-# Full training run
+# Full training run (auto = CUDA if available, else CPU; MPS not supported)
 azul-train --device auto --max-iters 500 --max-wall-minutes 60
 
 # Start play server locally

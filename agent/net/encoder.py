@@ -16,6 +16,7 @@ import torch
 
 from ..env import actions as A
 from ..env import batched_engine as BE
+from ..env import tiles as T
 
 MAX_PLAYERS = BE.MAX_PLAYERS
 NUM_COLORS = A.NUM_COLORS
@@ -34,12 +35,16 @@ D_SEAT_FEAT = D_PATTERN + D_WALL_FLAT + D_FLOOR + D_SCORE + D_IS_CURRENT  # 38
 # Global features
 D_PC_OH = 3  # one-hot for 2p/3p/4p
 D_CENTER_FIRST = 1  # whether first-player marker is still in center
+D_BAG = NUM_COLORS  # draw bag counts per color (normalized)
+D_BOX_LID = NUM_COLORS  # discard / box-lid counts per color (normalized)
 D_GLOBAL = (
     NUM_COLORS  # center tile counts (5)
     + D_CENTER_FIRST  # 1
     + D_PC_OH  # 3
+    + D_BAG  # 5
+    + D_BOX_LID  # 5
     + MAX_PLAYERS * D_SEAT_FEAT  # 4 * 38 = 152
-)  # total: 161
+)  # total: 171
 
 # Per-source features (factory displays + center)
 D_SOURCE = NUM_COLORS  # tile counts at each source (5)
@@ -102,8 +107,13 @@ def encode_state(
             torch.cat([pattern_feat, wall_feat, floor_feat, score_feat, is_current], dim=-1)
         )
 
+    bag_feat = engine.bag.float() / float(T.TILES_PER_COLOR)
+    lid_feat = engine.box_lid.float() / float(T.TILES_PER_COLOR)
+
     seats_flat = torch.cat(seat_blocks, dim=-1)
-    global_feat = torch.cat([center, center_first, pc_oh, seats_flat], dim=-1)
+    global_feat = torch.cat(
+        [center, center_first, pc_oh, bag_feat, lid_feat, seats_flat], dim=-1
+    )
     return global_feat, source_feat
 
 

@@ -75,7 +75,7 @@ class LoopConfig:
 
 
 _GPU_DEFAULTS: dict[str, object] = {
-    "selfplay_games": 4096,
+    "selfplay_games": 2048,
     "selfplay_sims": 32,
     "learner_batch": 4096,
     "replay_capacity": 820_000,
@@ -83,6 +83,9 @@ _GPU_DEFAULTS: dict[str, object] = {
     "use_amp": True,
     "compile_net": True,
 }
+
+# Attention models use more VRAM per game than flat MLP.
+_GPU_ATTN_SELFPLAY_GAMES = 1024
 
 
 def apply_device_defaults(
@@ -98,7 +101,11 @@ def apply_device_defaults(
             continue
         if getattr(cfg, field_name) == getattr(factory, field_name):
             overrides[field_name] = gpu_value
-    return dataclasses.replace(cfg, **overrides)
+    cfg_out = dataclasses.replace(cfg, **overrides)
+    if cfg_out.arch == "attn" and "selfplay_games" not in explicit_fields:
+        if cfg_out.selfplay_games > _GPU_ATTN_SELFPLAY_GAMES:
+            cfg_out = dataclasses.replace(cfg_out, selfplay_games=_GPU_ATTN_SELFPLAY_GAMES)
+    return cfg_out
 
 
 def _league_trigger(cur_iter: int, num_players: int, every: int) -> bool:

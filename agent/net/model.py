@@ -78,7 +78,9 @@ class AzulNet(nn.Module):
                 batch_first=True,
                 norm_first=True,
             )
-            self.source_encoder = nn.TransformerEncoder(enc_layer, num_layers=2)
+            self.source_encoder = nn.TransformerEncoder(
+                enc_layer, num_layers=2, enable_nested_tensor=False
+            )
             self.attn = nn.MultiheadAttention(
                 embed_dim=hidden,
                 num_heads=num_heads,
@@ -118,7 +120,19 @@ class AzulNet(nn.Module):
     def enable_compile(self) -> None:
         if self._compiled:
             return
-        self._forward_impl = torch.compile(self._forward_impl, dynamic=True)
+        import os
+
+        import torch._inductor.config
+
+        os.environ.setdefault("TORCHINDUCTOR_FX_GRAPH_CACHE", "1")
+        torch._inductor.config.triton.cudagraph_dynamic_shape_warn_limit = None
+        torch._dynamo.config.capture_scalar_outputs = True
+        self._compiled_forward = torch.compile(
+            self._forward_impl, mode="reduce-overhead", dynamic=True
+        )
+        self._compiled_value_forward = torch.compile(
+            self._forward_value_impl, mode="reduce-overhead", dynamic=True
+        )
         self._compiled = True
 
     def forward(
@@ -128,16 +142,38 @@ class AzulNet(nn.Module):
         legal_mask: torch.Tensor,
         num_players: int = 2,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        policy_logits, value = self._forward_impl(global_feat, source_feat, num_players)
+        if self._compiled:
+            policy_logits, value = self._compiled_forward(
+                global_feat, source_feat, num_players
+            )
+            policy_logits = policy_logits.clone()
+            value = value.clone()
+        else:
+            policy_logits, value = self._forward_impl(
+                global_feat, source_feat, num_players
+            )
         policy_logits = policy_logits.masked_fill(~legal_mask, -1e9)
         return policy_logits, value
 
-    def _forward_impl(
+    def forward_value(
+        self,
+        global_feat: torch.Tensor,
+        source_feat: torch.Tensor,
+        num_players: int = 2,
+    ) -> torch.Tensor:
+        """Value head only (skips policy) — used for MCTS child evaluation."""
+        if self._compiled:
+            return self._compiled_value_forward(
+                global_feat, source_feat, num_players
+            ).clone()
+        return self._forward_value_impl(global_feat, source_feat, num_players)
+
+    def _trunk(
         self,
         global_feat: torch.Tensor,
         source_feat: torch.Tensor,
         num_players: int,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, str]:
         pc_idx = num_players - 2
         pc_key = str(pc_idx)
 
@@ -167,6 +203,24 @@ class AzulNet(nn.Module):
             )
             trunk_out[:, : self.hidden] = trunk_out[:, : self.hidden] + pc_emb
 
+        return trunk_out, pc_key
+
+    def _forward_impl(
+        self,
+        global_feat: torch.Tensor,
+        source_feat: torch.Tensor,
+        num_players: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        trunk_out, pc_key = self._trunk(global_feat, source_feat, num_players)
         policy_logits = self.policy_heads[pc_key](trunk_out)
         value = torch.tanh(self.value_heads[pc_key](trunk_out))
         return policy_logits, value
+
+    def _forward_value_impl(
+        self,
+        global_feat: torch.Tensor,
+        source_feat: torch.Tensor,
+        num_players: int,
+    ) -> torch.Tensor:
+        trunk_out, pc_key = self._trunk(global_feat, source_feat, num_players)
+        return torch.tanh(self.value_heads[pc_key](trunk_out))

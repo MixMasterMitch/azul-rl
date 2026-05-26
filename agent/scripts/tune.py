@@ -24,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--n-trials", type=int, default=20)
     p.add_argument("--iters-per-trial", type=int, default=10)
     p.add_argument("--minutes-per-trial", type=float, default=0)
-    p.add_argument("--device", type=str, default="auto", choices=["cpu", "cuda", "mps", "auto"])
+    p.add_argument("--device", type=str, default="auto", choices=["cpu", "cuda", "auto"])
     p.add_argument("--storage", type=str, default=None)
     p.add_argument("--output-dir", type=str, default="agent/runs")
     p.add_argument("--narrow-ranges", action="store_true")
