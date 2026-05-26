@@ -1,0 +1,45 @@
+[project]
+name = "azul-rl"
+version = "0.1.0"
+description = "Azul RL agent with interactive play server"
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.0",
+    "numpy",
+    "pyyaml",
+    "tqdm",
+    "optuna",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "hypothesis>=6.0",
+    "moto[dynamodb]>=4.0",
+]
+aws = [
+    "boto3>=1.28",
+    "aws-cdk-lib>=2.100.0",
+    "constructs>=10.0",
+]
+play = [
+    "flask>=3.0",
+]
+
+[project.scripts]
+azul-train = "agent.scripts.train:main"
+azul-smoke = "agent.scripts.smoke_train:main"
+azul-eval = "agent.scripts.eval_ckpt:main"
+azul-league = "agent.scripts.league_table:main"
+azul-play = "play.server:main"
+azul-tune = "agent.scripts.tune:main"
+
+[tool.pytest.ini_options]
+testpaths = ["agent/tests", "play/tests"]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["agent*", "play*"]
