@@ -274,16 +274,19 @@ class SingleEngine:
         self._fill_factories()
 
     def get_winner(self) -> int:
-        """Return index of the winning player (-1 if game not ended)."""
+        """Return winner seat, ``NO_WINNER`` (-1) if not ended, ``SHARED_VICTORY`` (-2) if tied."""
+        from .batched_engine import NO_WINNER, SHARED_VICTORY
+
         if not self.ended:
-            return -1
-        best_score = -1
-        best_rows = -1
-        best_player = 0
-        for i, p in enumerate(self.players):
-            rows = sum(1 for r in range(5) if all(p.wall[r]))
-            if p.score > best_score or (p.score == best_score and rows > best_rows):
-                best_score = p.score
-                best_rows = rows
-                best_player = i
-        return best_player
+            return NO_WINNER
+        best_score = max(p.score for p in self.players)
+        by_score = [i for i, p in enumerate(self.players) if p.score == best_score]
+        max_rows = max(sum(1 for r in range(5) if all(self.players[i].wall[r])) for i in by_score)
+        winners = [
+            i
+            for i in by_score
+            if sum(1 for r in range(5) if all(self.players[i].wall[r])) == max_rows
+        ]
+        if len(winners) == 1:
+            return winners[0]
+        return SHARED_VICTORY

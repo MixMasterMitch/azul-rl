@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 
 from agent.env import batched_engine as BE
@@ -23,6 +24,39 @@ def test_mcts_alive_games_not_zero_when_one_ended() -> None:
     # Alive games should not all be action 0 due to K=0 batch bug
     alive_actions = actions[1:]
     assert not (alive_actions == 0).all()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="cuda required")
+def test_mcts_child_eval_near_round_end_is_fast() -> None:
+    """Regression: child eval must not wall-tile thousands of hypothetical states."""
+    import time
+
+    from agent.net import encoder as ENC
+    from agent.search.gumbel_mcts import _evaluate_root_children_batched
+
+    device = "cuda"
+    engine = BE.BatchedEngine(64, 2, device, seed=0)
+    net = AzulNet(hidden=128, arch="attn").to(device)
+    net.eval()
+
+    for _ in range(10):
+        g, s = ENC.encode_state(engine)
+        legal = engine.legal_action_mask()
+        actions, _ = G.gumbel_root_act(engine, net, num_sims=8, precomputed=(g, s, legal))
+        engine.step(actions)
+
+    g, s = ENC.encode_state(engine)
+    legal = engine.legal_action_mask()
+    with torch.no_grad():
+        prior, _ = net(g, s, legal, 2)
+    top_idx = (prior + torch.randn_like(prior)).topk(8, dim=-1).indices
+
+    torch.cuda.synchronize()
+    t0 = time.perf_counter()
+    _evaluate_root_children_batched(engine, net, top_idx, legal, 2)
+    torch.cuda.synchronize()
+    elapsed = time.perf_counter() - t0
+    assert elapsed < 1.0, f"child eval took {elapsed:.2f}s (expected <1s without wall-tiling)"
 
 
 def test_selfplay_finishes_most_games_under_cap() -> None:

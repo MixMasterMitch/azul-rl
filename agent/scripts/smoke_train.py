@@ -13,7 +13,7 @@ def main() -> None:
         run = Run("smoke", runs_root=tmpdir, create_ok=True)
         config = LoopConfig(
             num_players=2,
-            device="cpu",
+            device="auto",
             hidden=64,
             arch="flat",
             selfplay_games=8,

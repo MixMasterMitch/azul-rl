@@ -8,8 +8,9 @@ Layout:
   action_index = source * (NUM_COLORS * NUM_TARGETS) + color * NUM_TARGETS + target
 
 Where:
-- source ∈ [0, MAX_FACTORIES)  → factory displays
-- source = MAX_FACTORIES       → center of table
+- source ∈ [0, num_factories)  → active factory displays
+- source = num_factories       → center of table
+- higher source slots are unused in 2p/3p and masked illegal
 - color  ∈ [0, NUM_COLORS)     → tile color to pick
 - target ∈ [0, 5)              → pattern line row (0=size-1, 4=size-5)
 - target = 5                   → floor (discard all picked tiles directly)
@@ -35,6 +36,8 @@ NUM_TARGETS: int = NUM_PATTERN_LINES + 1  # 5 pattern lines + floor
 FLOOR_TARGET: int = 5
 
 NUM_ACTIONS: int = NUM_SOURCES * NUM_COLORS * NUM_TARGETS  # 300
+# Mask value for illegal actions (must fit float16 for CUDA AMP).
+ILLEGAL_LOGIT: float = -1e4
 
 MAX_PLAYERS: int = 4
 FLOOR_SIZE: int = 7
@@ -75,9 +78,12 @@ def decode_action(action: int) -> tuple[int, int, int]:
     return source, color, target
 
 
-def action_name(action: int) -> str:
+def action_name(action: int, num_players: int | None = None) -> str:
     source, color, target = decode_action(action)
-    src_str = f"factory{source}" if source < MAX_FACTORIES else "center"
+    center_source = (
+        MAX_FACTORIES if num_players is None else num_factories_for_players(num_players)
+    )
+    src_str = "center" if source == center_source else f"factory{source}"
     color_str = COLOR_ABBREV[color]
     tgt_str = f"line{target}" if target < NUM_PATTERN_LINES else "floor"
     return f"pick({src_str},{color_str})→{tgt_str}"

@@ -3,6 +3,7 @@
 import pytest
 
 from agent.env import actions as A
+from agent.env.batched_engine import SHARED_VICTORY
 from agent.env.single_engine import SingleEngine
 
 
@@ -44,7 +45,7 @@ def test_play_random_game():
 
     assert engine.ended, f"Game did not end within 500 turns"
     winner = engine.get_winner()
-    assert 0 <= winner < 2
+    assert winner == SHARED_VICTORY or 0 <= winner < 2
 
 
 def test_scores_nonnegative():

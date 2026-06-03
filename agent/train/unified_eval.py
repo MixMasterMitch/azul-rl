@@ -13,9 +13,11 @@ import torch
 
 from ..env import batched_engine as BE
 from ..eval import bots as B
+from ..eval.heuristic_opus import HeuristicOpusBot
 from ..net import model as M
 from ..search import gumbel_mcts as G
 from . import checkpointing as CK
+from .instrumentation import PerfCounters, maybe_time, resource_delta, resource_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +25,18 @@ logger = logging.getLogger(__name__)
 @dataclasses.dataclass
 class UnifiedEvalConfig:
     total_games: int = 512
-    num_sims: int = 64
+    num_sims: int = 32
     max_turns: int = 200
+    temperature: float = 0.25
     turns_per_player: int = 60
     weight_2p: float = 1.0
     weight_3p: float = 0.0
     weight_4p: float = 0.0
     league_opponents: int = 4
     timeout_s: float = 900.0
+    q_scale: float = 10.0
+    profile: bool = False
+    num_workers: int = 1
 
 
 @dataclasses.dataclass
@@ -62,6 +68,8 @@ def extract_pairwise_results(
         if not finished[b]:
             continue
         w = int(winner_seats[b].item())
+        if w < 0:
+            continue
         winner_name = seat_names[b][w]
         for p in range(num_players):
             if p == w:
@@ -82,6 +90,7 @@ def _run_multiplayer_games(
     eval_agent_name: str,
     seed: int,
     max_turns: int,
+    perf: PerfCounters | None = None,
 ) -> Tuple[List[PairwiseResult], Dict[str, float]]:
     if num_games == 0:
         return [], {}
@@ -109,20 +118,26 @@ def _run_multiplayer_games(
         cp = engine.current_player.long()
         actions = torch.zeros((num_games,), dtype=torch.long, device=device)
 
-        policy_for_game: Dict[str, List[int]] = {}
-        for b in range(num_games):
-            if not alive[b]:
-                continue
-            name = seat_names[b][int(cp[b].item())]
-            policy_for_game.setdefault(name, []).append(b)
+        with maybe_time(perf, f"eval_{num_players}p_group_policies"):
+            policy_for_game: Dict[str, List[int]] = {}
+            for b in range(num_games):
+                if not alive[b]:
+                    continue
+                name = seat_names[b][int(cp[b].item())]
+                policy_for_game.setdefault(name, []).append(b)
 
         for name, game_indices in policy_for_game.items():
-            idx = torch.tensor(game_indices, dtype=torch.long, device=device)
-            sub = engine.index_select(idx)
-            sub_actions = policies[name](sub)
-            actions.index_copy_(0, idx, sub_actions)
+            stage_name = name if name in {"eval_agent", "random", "heuristic", "heuristic_opus"} else "league"
+            with maybe_time(perf, f"eval_{num_players}p_policy_{stage_name}"):
+                idx = torch.tensor(game_indices, dtype=torch.long, device=device)
+                sub = engine.index_select(idx)
+                sub_actions = policies[name](sub)
+                actions.index_copy_(0, idx, sub_actions)
+            if perf is not None:
+                perf.add_count(f"eval_{num_players}p_policy_{stage_name}_positions", len(game_indices))
 
-        engine.step(actions)
+        with maybe_time(perf, f"eval_{num_players}p_env_step"):
+            engine.step(actions)
         prev_ended = engine.ended.clone()
         turn += 1
 
@@ -135,8 +150,11 @@ def _run_multiplayer_games(
     for b in range(num_games):
         if not finished[b]:
             continue
+        w = int(winners[b].item())
+        if w < 0:
+            continue
         eval_finished += 1
-        if seat_names[b][int(winners[b].item())] == eval_agent_name:
+        if seat_names[b][w] == eval_agent_name:
             eval_wins += 1
 
     metrics = {
@@ -158,6 +176,8 @@ def run_unified_eval(
     from ..net import encoder as ENC
 
     t_start = time.monotonic()
+    perf = PerfCounters(enabled=config.profile, device="cpu")
+    resource_start = resource_snapshot() if config.profile else None
     eval_net = M.AzulNet(hidden=hidden, arch=arch)
     eval_net.load_state_dict(state_dict)
     eval_net.eval()
@@ -167,7 +187,13 @@ def run_unified_eval(
     def _make_net_policy(net: M.AzulNet, num_sims: int, num_players: int):
         def choose(engine: BE.BatchedEngine) -> torch.Tensor:
             with torch.no_grad():
-                act, _ = G.gumbel_root_act(engine, net, num_sims=num_sims)
+                act, _ = G.gumbel_root_act(
+                    engine,
+                    net,
+                    num_sims=num_sims,
+                    temperature=config.temperature,
+                    q_scale=config.q_scale,
+                )
             return act
 
         return choose
@@ -189,6 +215,7 @@ def run_unified_eval(
         eval_agent_name: _make_net_policy(eval_net, config.num_sims, 2),
         "random": _BotPolicy(B.RandomBot(seed=seed), 2),
         "heuristic": _BotPolicy(B.HeuristicBot(seed=seed + 1), 2),
+        "heuristic_opus": _BotPolicy(HeuristicOpusBot(seed=seed + 2), 2),
     }
 
     league_names: List[str] = []
@@ -227,12 +254,16 @@ def run_unified_eval(
             eval_agent_name=eval_agent_name,
             seed=seed + num_players * 1000,
             max_turns=effective_max_turns,
+            perf=perf,
         )
         all_pairwise.extend(pairwise)
         all_metrics.update(metrics)
 
     wall_s = time.monotonic() - t_start
     all_metrics["eval_wall_s"] = round(wall_s, 3)
+    if config.profile and resource_start is not None:
+        all_metrics.update(resource_delta(resource_start, resource_snapshot(), prefix="eval_profile"))
+        all_metrics.update(perf.snapshot(prefix="eval_profile"))
 
     pairwise_list = [
         {"winner": pr.winner, "loser": pr.loser, "weight": pr.weight, "num_players": pr.num_players}
@@ -256,21 +287,47 @@ def _unified_eval_worker(
     seed: int,
     hidden: int,
     arch: str,
+    worker_id: int = 0,
 ) -> None:
     try:
         results = run_unified_eval(
             state_dict,
             league_checkpoint_paths,
             config,
-            seed,
+            seed + worker_id * 100003,
             hidden=hidden,
             arch=arch,
         )
-        queue.put((iteration, results))
+        queue.put((iteration, worker_id, results))
     except Exception as exc:
         import traceback
 
-        queue.put((iteration, {"error": str(exc), "traceback": traceback.format_exc()}))
+        queue.put((iteration, worker_id, {"error": str(exc), "traceback": traceback.format_exc()}))
+
+
+def _merge_eval_results(parts: List[Dict]) -> Dict:
+    if not parts:
+        return {"pairwise": [], "metrics": {}, "eval_wall_s": 0.0, "league_opponents": []}
+    merged_pairwise: List[dict] = []
+    merged_metrics: Dict[str, float] = {}
+    league_opponents: List[str] = []
+    wall_s = 0.0
+    for part in parts:
+        if "error" in part:
+            return part
+        merged_pairwise.extend(part.get("pairwise", []))
+        for k, v in part.get("metrics", {}).items():
+            if isinstance(v, (int, float)):
+                merged_metrics[k] = merged_metrics.get(k, 0.0) + float(v)
+        wall_s = max(wall_s, float(part.get("eval_wall_s", 0.0)))
+        if not league_opponents:
+            league_opponents = part.get("league_opponents", [])
+    return {
+        "pairwise": merged_pairwise,
+        "metrics": merged_metrics,
+        "eval_wall_s": wall_s,
+        "league_opponents": league_opponents,
+    }
 
 
 class UnifiedEvalHandle:
@@ -278,14 +335,15 @@ class UnifiedEvalHandle:
         self._config = config
         self._hidden = hidden
         self._arch = arch
-        self._process: Optional[multiprocessing.Process] = None
+        self._processes: List[multiprocessing.Process] = []
         ctx = multiprocessing.get_context("spawn")
         self._mp_ctx = ctx
         self._queue: multiprocessing.Queue = ctx.Queue()
         self._iteration_tag: Optional[int] = None
+        self._expected_workers: int = 0
 
     def is_active(self) -> bool:
-        return self._process is not None and self._process.is_alive()
+        return any(p.is_alive() for p in self._processes)
 
     def launch(
         self,
@@ -297,51 +355,81 @@ class UnifiedEvalHandle:
         if self.is_active():
             return False
         self._reap()
-        self._process = self._mp_ctx.Process(
-            target=_unified_eval_worker,
-            args=(
-                self._queue,
-                net_state_dict,
-                league_checkpoint_paths,
-                self._config,
-                iteration,
-                seed,
-                self._hidden,
-                self._arch,
-            ),
-            daemon=True,
-        )
+        n_workers = max(1, self._config.num_workers)
+        total = self._config.total_games
+        base = total // n_workers
+        extra = total % n_workers
+        self._expected_workers = n_workers
         self._iteration_tag = iteration
-        self._process.start()
+
+        for worker_id in range(n_workers):
+            shard_games = base + (1 if worker_id < extra else 0)
+            if shard_games <= 0:
+                continue
+            shard_config = dataclasses.replace(self._config, total_games=shard_games)
+            proc = self._mp_ctx.Process(
+                target=_unified_eval_worker,
+                args=(
+                    self._queue,
+                    net_state_dict,
+                    league_checkpoint_paths,
+                    shard_config,
+                    iteration,
+                    seed,
+                    self._hidden,
+                    self._arch,
+                    worker_id,
+                ),
+                daemon=True,
+            )
+            proc.start()
+            self._processes.append(proc)
         return True
 
     def try_collect(self) -> Optional[Tuple[int, Dict]]:
-        if self._process is None:
+        if not self._processes:
             return None
-        result = self._drain_one()
-        if result is not None:
+        collected = self._drain_all_pending()
+        if len(collected) >= self._expected_workers:
             self._reap()
-            return result
-        if not self._process.is_alive():
+            return self._merge_collected(collected)
+        if not self.is_active():
             self._reap()
+            if collected:
+                return self._merge_collected(collected)
         return None
 
     def wait_and_collect(self, timeout: float | None = None) -> Optional[Tuple[int, Dict]]:
-        if self._process is None:
+        if not self._processes:
             return None
         effective_timeout = timeout if timeout is not None else self._config.timeout_s
-        self._process.join(timeout=effective_timeout)
-        if self._process.is_alive():
-            self._process.terminate()
-            self._process.join(timeout=5)
-        result = self._drain_one()
+        deadline = time.monotonic() + effective_timeout
+        collected: List[Tuple[int, int, Dict]] = []
+        while time.monotonic() < deadline:
+            collected.extend(self._drain_all_pending())
+            if len(collected) >= self._expected_workers:
+                break
+            if not self.is_active() and self._queue.empty():
+                break
+            time.sleep(0.05)
+
+        for proc in self._processes:
+            if proc.is_alive():
+                proc.join(timeout=1)
+            if proc.is_alive():
+                proc.terminate()
+                proc.join(timeout=5)
+        collected.extend(self._drain_all_pending())
         self._reap()
-        return result
+        if not collected:
+            return None
+        return self._merge_collected(collected)
 
     def cleanup(self) -> None:
-        if self._process is not None and self._process.is_alive():
-            self._process.terminate()
-            self._process.join(timeout=5)
+        for proc in self._processes:
+            if proc.is_alive():
+                proc.terminate()
+                proc.join(timeout=5)
         self._reap()
         while not self._queue.empty():
             try:
@@ -349,15 +437,24 @@ class UnifiedEvalHandle:
             except Exception:
                 break
 
-    def _drain_one(self) -> Optional[Tuple[int, Dict]]:
-        try:
-            return self._queue.get_nowait()
-        except Exception:
-            return None
+    def _drain_all_pending(self) -> List[Tuple[int, int, Dict]]:
+        out: List[Tuple[int, int, Dict]] = []
+        while True:
+            try:
+                out.append(self._queue.get_nowait())
+            except Exception:
+                break
+        return out
+
+    def _merge_collected(self, collected: List[Tuple[int, int, Dict]]) -> Tuple[int, Dict]:
+        iteration = collected[0][0]
+        parts = [item[2] for item in collected]
+        return iteration, _merge_eval_results(parts)
 
     def _reap(self) -> None:
-        if self._process is not None:
-            if not self._process.is_alive():
-                self._process.join(timeout=1)
-            self._process = None
-            self._iteration_tag = None
+        for proc in self._processes:
+            if not proc.is_alive():
+                proc.join(timeout=1)
+        self._processes = []
+        self._iteration_tag = None
+        self._expected_workers = 0

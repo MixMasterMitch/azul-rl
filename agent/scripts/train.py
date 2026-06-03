@@ -14,38 +14,91 @@ def main() -> None:
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--hidden", type=int, default=256)
     parser.add_argument("--arch", type=str, default="attn", choices=["attn", "flat"])
-    parser.add_argument("--selfplay-games", type=int, default=512)
-    parser.add_argument("--selfplay-sims", type=int, default=8)
+    parser.add_argument("--selfplay-games", type=int, default=1023)
+    parser.add_argument("--selfplay-sims", type=int, default=32)
     parser.add_argument("--max-turns", type=int, default=200)
-    parser.add_argument("--replay-capacity", type=int, default=600_000)
+    parser.add_argument(
+        "--turns-per-player",
+        type=int,
+        default=60,
+        help="Self-play turn cap = this × num_players (0 = use --max-turns)",
+    )
+    parser.add_argument("--replay-capacity", type=int, default=1_000_000)
     parser.add_argument("--learner-batch", type=int, default=256)
-    parser.add_argument("--learner-steps", type=int, default=192)
-    parser.add_argument("--entropy-bonus", type=float, default=0.015)
-    parser.add_argument("--checkpoint-every", type=int, default=50)
-    parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--max-iters", type=int, default=500)
-    parser.add_argument("--max-wall-minutes", type=float, default=60.0)
+    parser.add_argument("--learner-steps", type=int, default=64)
+    parser.add_argument("--entropy-bonus", type=float, default=0.034)
+    parser.add_argument("--checkpoint-every", type=int, default=25)
+    parser.add_argument("--lr", type=float, default=2.75e-3)
+    parser.add_argument("--weight-decay", type=float, default=1.2e-5)
+    parser.add_argument("--max-iters", type=int, default=1000)
+    parser.add_argument("--max-wall-minutes", type=float, default=1440.0)
     parser.add_argument("--init-from", type=str, default="")
     parser.add_argument("--run-id", type=str, default="default")
     parser.add_argument("--runs-root", type=str, default="")
-    parser.add_argument("--dirichlet-alpha", type=float, default=0.15)
-    parser.add_argument("--dirichlet-mix", type=float, default=0.40)
-    parser.add_argument("--q-scale", type=float, default=22.0)
+    parser.add_argument("--dirichlet-alpha", type=float, default=0.27)
+    parser.add_argument("--dirichlet-mix", type=float, default=0.47)
+    parser.add_argument("--q-scale", type=float, default=25.0)
     parser.add_argument("--time-discount", type=float, default=1.0)
     parser.add_argument("--reward-mode", type=str, default="score_scaled", choices=["binary", "score_scaled"])
-    parser.add_argument("--league-selfplay-every", type=int, default=3)
+    parser.add_argument(
+        "--training-cycle-length",
+        type=int,
+        default=4,
+        help="Iter cycle: selfplay, league, selfplay, bot (0 = all selfplay).",
+    )
+    parser.add_argument(
+        "--bot-opus-prob",
+        type=float,
+        default=0.5,
+        help="Fraction of bot-selfplay games vs heuristic_opus (rest vs heuristic).",
+    )
+    parser.add_argument(
+        "--league-selfplay-every",
+        type=int,
+        default=0,
+        help="Legacy: if --training-cycle-length 0, use hash trigger every N iters.",
+    )
     parser.add_argument("--eval-games", type=int, default=512)
-    parser.add_argument("--use-amp", action="store_true")
-    parser.add_argument("--compile-net", action="store_true")
+    parser.add_argument("--eval-sims", type=int, default=32)
+    amp_group = parser.add_mutually_exclusive_group()
+    amp_group.add_argument("--use-amp", action="store_true", help="Enable AMP (overrides GPU defaults).")
+    amp_group.add_argument("--no-amp", action="store_true", help="Disable AMP (overrides GPU defaults).")
+
+    compile_group = parser.add_mutually_exclusive_group()
+    compile_group.add_argument(
+        "--compile-net", action="store_true", help="Enable torch.compile (overrides GPU defaults)."
+    )
+    compile_group.add_argument(
+        "--no-compile-net", action="store_true", help="Disable torch.compile (overrides GPU defaults)."
+    )
+    parser.add_argument(
+        "--profile-training",
+        action="store_true",
+        help="Log per-iteration CPU/GPU/resource and stage timing instrumentation.",
+    )
+    parser.add_argument(
+        "--profile-sync-cuda",
+        action="store_true",
+        help="Synchronize CUDA around timed regions for accurate GPU timings (slower).",
+    )
+    parser.add_argument(
+        "--bot-policy",
+        type=str,
+        default="batched",
+        choices=["batched", "scalar"],
+        help="Bot opponent policy for bot self-play (training).",
+    )
+    parser.add_argument("--eval-workers", type=int, default=1, help="Parallel eval subprocesses.")
 
     args = parser.parse_args()
-
     explicit = set()
-    if args.use_amp:
+    if args.use_amp or args.no_amp:
         explicit.add("use_amp")
-    if args.compile_net:
+    if args.compile_net or args.no_compile_net:
         explicit.add("compile_net")
+
+    use_amp = True if args.use_amp else False if args.no_amp else False
+    compile_net = True if args.compile_net else False if args.no_compile_net else False
 
     config = LoopConfig(
         num_players=args.num_players,
@@ -55,6 +108,7 @@ def main() -> None:
         selfplay_games=args.selfplay_games,
         selfplay_sims=args.selfplay_sims,
         selfplay_max_turns=args.max_turns,
+        selfplay_turns_per_player=args.turns_per_player,
         replay_capacity=args.replay_capacity,
         learner_batch=args.learner_batch,
         learner_steps_per_iter=args.learner_steps,
@@ -72,10 +126,17 @@ def main() -> None:
         q_scale=args.q_scale,
         time_discount=args.time_discount,
         reward_mode=args.reward_mode,
+        training_cycle_length=args.training_cycle_length,
+        bot_selfplay_opus_prob=args.bot_opus_prob,
         league_selfplay_every=args.league_selfplay_every,
         eval_games=args.eval_games,
-        use_amp=args.use_amp,
-        compile_net=args.compile_net,
+        eval_sims=args.eval_sims,
+        use_amp=use_amp,
+        compile_net=compile_net,
+        profile_training=args.profile_training,
+        profile_sync_cuda=args.profile_sync_cuda,
+        bot_policy=args.bot_policy,
+        eval_workers=args.eval_workers,
     )
 
     from ..train.device import resolve_device

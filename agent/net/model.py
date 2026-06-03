@@ -152,7 +152,7 @@ class AzulNet(nn.Module):
             policy_logits, value = self._forward_impl(
                 global_feat, source_feat, num_players
             )
-        policy_logits = policy_logits.masked_fill(~legal_mask, -1e9)
+        policy_logits = policy_logits.masked_fill(~legal_mask, A.ILLEGAL_LOGIT)
         return policy_logits, value
 
     def forward_value(

@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import random
 
-import torch
-
 from ..env import actions as A
 from ..env import batched_engine as BE
 
@@ -148,10 +146,7 @@ class _V13:
         self.rng = random.Random(seed)
 
     def select_action(self, engine: BE.BatchedEngine, game_idx: int) -> int:
-        mask = torch.zeros(A.NUM_ACTIONS, dtype=torch.bool, device=engine.device)
-        player = engine.current_player[game_idx].item()
-        engine._compute_legal_for_game(game_idx, player, mask)
-        legal = mask.nonzero(as_tuple=True)[0].tolist()
+        legal = engine.legal_action_mask()[game_idx].nonzero(as_tuple=True)[0].tolist()
         if not legal:
             return 0
 

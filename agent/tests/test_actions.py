@@ -57,3 +57,6 @@ def test_action_name():
     assert "center" in name
     assert "W" in name
     assert "floor" in name
+
+    name = A.action_name(A.encode_action(5, 4, 5), num_players=2)
+    assert "center" in name

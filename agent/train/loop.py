@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
 import pathlib
 import random as stdlib_random
@@ -21,14 +20,26 @@ from .checkpointing import (
     checkpoint_net_state_dict,
     load_checkpoint,
     load_checkpoint_payload,
+    load_model_state_dict_compatible,
     save_checkpoint,
 )
 from .device import configure_device, resolve_device
+from .instrumentation import (
+    PerfCounters,
+    cuda_memory_snapshot,
+    maybe_time,
+    nvidia_smi_snapshot,
+    reset_cuda_peak_memory,
+    resource_delta,
+    resource_snapshot,
+)
 from .league import League
+from .bot_selfplay import run_bot_selfplay
 from .league_selfplay import run_league_selfplay
 from .learner import make_optimizer, step_from_buffer
 from .replay_buffer import ReplayBuffer
 from .selfplay import run_selfplay
+from .stability import net_parameters_finite, reset_buffer, restore_net_from_checkpoint
 from .unified_eval import UnifiedEvalConfig, UnifiedEvalHandle
 
 
@@ -38,54 +49,61 @@ class LoopConfig:
     device: str = "auto"
     hidden: int = 256
     arch: str = "attn"
-    selfplay_games: int = 512
-    selfplay_sims: int = 8
+    selfplay_games: int = 1023
+    selfplay_sims: int = 32
     selfplay_max_turns: int = 200
-    selfplay_turns_per_player: int = 50
-    replay_capacity: int = 600_000
+    selfplay_turns_per_player: int = 60
+    replay_capacity: int = 1_000_000
     learner_batch: int = 256
-    learner_steps_per_iter: int = 192
-    entropy_bonus: float = 0.015
-    checkpoint_every: int = 50
-    lr: float = 3e-4
-    weight_decay: float = 1e-4
-    max_iters: int = 500
-    max_wall_minutes: float = 60.0
+    learner_steps_per_iter: int = 64
+    entropy_bonus: float = 0.034
+    checkpoint_every: int = 25
+    lr: float = 2.75e-3
+    weight_decay: float = 1.2e-5
+    max_iters: int = 1000
+    max_wall_minutes: float = 1440.0
     init_from: str = ""
     run_id: str = "default"
     runs_root: str = ""
-    dirichlet_alpha: float = 0.15
-    dirichlet_mix: float = 0.40
-    q_scale: float = 22.0
+    dirichlet_alpha: float = 0.27
+    dirichlet_mix: float = 0.47
+    q_scale: float = 25.0
     time_discount: float = 1.0
     reward_mode: str = "score_scaled"
+    training_cycle_length: int = 4
+    bot_selfplay_opus_prob: float = 0.5
     league_selfplay_every: int = 3
     league_opponent_prob: float = 0.5
     league_opponent_sims: int = 4
     league_max_entries: int = 24
     league_keep_recent: int = 8
     eval_games: int = 512
-    eval_sims: int = 64
+    eval_sims: int = 32
     eval_max_turns: int = 200
     eval_turns_per_player: int = 60
     eval_league_opponents: int = 4
     use_amp: bool = False
     compile_net: bool = False
     keep_recent_checkpoints: int = 3
+    save_buffer_in_checkpoints: bool = True
+    profile_training: bool = False
+    profile_sync_cuda: bool = False
+    bot_policy: str = "batched"
+    eval_workers: int = 1
 
 
 _GPU_DEFAULTS: dict[str, object] = {
-    "selfplay_games": 2048,
+    "selfplay_games": 1023,
     "selfplay_sims": 32,
-    "learner_batch": 4096,
-    "replay_capacity": 820_000,
+    "learner_batch": 256,
+    "replay_capacity": 1_000_000,
     "learner_steps_per_iter": 64,
     "use_amp": True,
-    "compile_net": True,
+    "compile_net": False,
 }
 
-# Attention models use more VRAM per game than flat MLP.
-_GPU_ATTN_SELFPLAY_GAMES = 1024
+# Max selfplay batch for attn (games×sims must be <= 65535).
+_GPU_ATTN_SELFPLAY_GAMES = 2047
 
 
 def apply_device_defaults(
@@ -108,14 +126,33 @@ def apply_device_defaults(
     return cfg_out
 
 
-def _league_trigger(cur_iter: int, num_players: int, every: int) -> bool:
-    if every <= 0:
-        return False
-    if every == 1:
-        return True
-    h = hashlib.md5(f"{cur_iter}|{num_players}".encode()).digest()
-    n = int.from_bytes(h[:8], "big")
-    return (n % every) == 0
+def _training_phase(cur_iter: int, cycle_length: int) -> str:
+    """4-step cycle (iter 1..4): selfplay, league, selfplay, bot."""
+    if cycle_length <= 0:
+        return "selfplay"
+    r = cur_iter % cycle_length
+    if r == 2:
+        return "league"
+    if r == 0:
+        return "bot"
+    return "selfplay"
+
+
+_SELFPLAY_KIND_LABEL: dict[str, str] = {
+    "selfplay": "standard_selfplay",
+    "league": "league_selfplay",
+    "bot": "bot_selfplay",
+}
+
+
+def _resolve_selfplay_kind(
+    scheduled_phase: str,
+    league_has_entries: bool,
+) -> tuple[str, str]:
+    """Return (kind label, scheduled_phase) for logging; kind is what actually runs."""
+    if scheduled_phase == "league" and not league_has_entries:
+        return "standard_selfplay", scheduled_phase
+    return _SELFPLAY_KIND_LABEL.get(scheduled_phase, scheduled_phase), scheduled_phase
 
 
 def _latest_ckpt(ckpt_dir: pathlib.Path) -> Optional[pathlib.Path]:
@@ -141,24 +178,27 @@ def _apply_eval_results(
     eval_agent_entity: str,
     league_entry_map: dict[str, int],
 ) -> dict[str, float]:
+    def _to_entity(name: str) -> str:
+        if name == "eval_agent":
+            return eval_agent_entity
+        if name in league_entry_map:
+            return f"ckpt:{league_entry_map[name]}"
+        if name == "opus":
+            return "heuristic_opus"
+        return name
+
     for result in eval_results.get("pairwise", []):
-        winner = result["winner"]
-        loser = result["loser"]
-        if winner == "eval_agent":
-            winner = eval_agent_entity
-        if loser == "eval_agent":
-            loser = eval_agent_entity
-        for i, idx in league_entry_map.items():
-            if winner == i:
-                winner = f"ckpt:{idx}"
-            if loser == i:
-                loser = f"ckpt:{idx}"
+        winner_entity = _to_entity(result["winner"])
+        loser_entity = _to_entity(result["loser"])
+        weight = float(result["weight"])
+        num_players = int(result.get("num_players", 2))
         league.record_result(
-            winner,
-            loser,
-            wins_w=result["weight"],
-            wins_l=0.0,
-            num_players=int(result.get("num_players", 2)),
+            winner_entity,
+            loser_entity,
+            weight,
+            0.0,
+            0.0,
+            num_players=num_players,
         )
     return league.recompute_ratings()
 
@@ -193,21 +233,36 @@ def run_loop(
         device=device,
     )
 
-    grad_scaler: Optional[torch.amp.GradScaler] = None
     if config.use_amp and device.startswith("cuda"):
-        grad_scaler = torch.amp.GradScaler("cuda")
-        run.event("amp_enabled", {"device": device})
+        run.event("amp_note", {"detail": "learner uses fp32; AMP not applied to weight updates"})
 
     start_iter = 0
+    recover_path: Optional[str] = None
     ckpt = _latest_ckpt(run.ckpt_dir)
     if ckpt is not None:
         payload = load_checkpoint(ckpt, net, optim, buffer, map_location=device)
         start_iter = int(payload.get("iteration", 0))
+        recover_path = str(ckpt)
         run.event("loop_resumed", {"from": str(ckpt), "iter": start_iter})
     elif config.init_from and pathlib.Path(config.init_from).exists():
         payload = load_checkpoint_payload(config.init_from, map_location=device)
-        net.load_state_dict(checkpoint_net_state_dict(payload))
-        run.event("loop_init_from", {"from": config.init_from})
+        migrated = load_model_state_dict_compatible(net, checkpoint_net_state_dict(payload))
+        recover_path = config.init_from
+        run.event("loop_init_from", {"from": config.init_from, "migrated": migrated})
+
+    def _recover_training(reason: str) -> None:
+        nonlocal optim
+        if not recover_path or not pathlib.Path(recover_path).exists():
+            run.event("training_recover_failed", {"reason": reason}, level="ERROR")
+            raise RuntimeError(f"cannot recover weights: {reason}")
+        restore_net_from_checkpoint(net, recover_path, device)
+        optim = make_optimizer(net, lr=config.lr, weight_decay=config.weight_decay)
+        reset_buffer(buffer)
+        run.event(
+            "training_recovered",
+            {"reason": reason, "from": recover_path, "buffer_cleared": True},
+            level="WARNING",
+        )
 
     league_root = run.root.parent / "league"
     league = League(
@@ -226,6 +281,9 @@ def run_loop(
             weight_3p=0.0,
             weight_4p=0.0,
             league_opponents=config.eval_league_opponents,
+            q_scale=config.q_scale,
+            profile=config.profile_training,
+            num_workers=max(1, config.eval_workers),
         ),
         hidden=config.hidden,
         arch=config.arch,
@@ -262,7 +320,63 @@ def run_loop(
             break
 
         cur_iter += 1
-        run.write_heartbeat({"iter": cur_iter, "phase": "selfplay", "buffer_size": buffer.size})
+        perf = PerfCounters(
+            enabled=config.profile_training,
+            device=device,
+            sync_cuda=config.profile_sync_cuda,
+        )
+        perf_arg = perf if config.profile_training else None
+        iter_resource_start = resource_snapshot() if config.profile_training else None
+        if config.profile_training:
+            reset_cuda_peak_memory(device)
+
+        cycle_len = config.training_cycle_length
+        if cycle_len <= 0 and config.league_selfplay_every > 0:
+            cycle_len = config.league_selfplay_every * 2
+        scheduled_phase = _training_phase(cur_iter, cycle_len)
+        league_has_entries = len(league.list_entries()) > 0
+        selfplay_kind, _ = _resolve_selfplay_kind(scheduled_phase, league_has_entries)
+        cycle_step = (cur_iter % cycle_len) if cycle_len > 0 else 0
+
+        run.write_heartbeat(
+            {
+                "iter": cur_iter,
+                "phase": selfplay_kind,
+                "buffer_size": buffer.size,
+            }
+        )
+        run.event(
+            "iter_started",
+            {
+                "iter": cur_iter,
+                "buffer_size": buffer.size,
+                "scheduled_phase": scheduled_phase,
+                "selfplay_kind": selfplay_kind,
+                "training_cycle_length": cycle_len,
+                "training_cycle_step": cycle_step,
+            },
+        )
+        run.event(
+            "selfplay_started",
+            {
+                "iter": cur_iter,
+                "selfplay_kind": selfplay_kind,
+                "scheduled_phase": scheduled_phase,
+                "games": config.selfplay_games,
+                "sims": config.selfplay_sims,
+                "training_cycle_length": cycle_len,
+                "training_cycle_step": cycle_step,
+                "league_fallback": scheduled_phase == "league" and not league_has_entries,
+            },
+        )
+        print(
+            f"Iter {cur_iter}: starting {selfplay_kind} "
+            f"(cycle {cycle_step}/{cycle_len}, buffer={buffer.size}, "
+            f"games={config.selfplay_games}, sims={config.selfplay_sims})"
+        )
+
+        if not net_parameters_finite(net):
+            _recover_training("nonfinite_weights_before_selfplay")
 
         sp_max_turns = (
             config.selfplay_turns_per_player * config.num_players
@@ -270,71 +384,134 @@ def run_loop(
             else config.selfplay_max_turns
         )
 
-        use_league = (
-            config.league_selfplay_every > 0
-            and _league_trigger(cur_iter, config.num_players, config.league_selfplay_every)
-            and len(league.list_entries()) > 0
+        phase = scheduled_phase
+
+        def _selfplay_progress(info: dict) -> None:
+            run.write_heartbeat(
+                {
+                    "iter": cur_iter,
+                    "phase": selfplay_kind,
+                    "buffer_size": buffer.size,
+                    **info,
+                }
+            )
+            run.event(
+                "selfplay_progress",
+                {"iter": cur_iter, "selfplay_kind": selfplay_kind, **info},
+            )
+
+        sp_common = dict(
+            num_players=config.num_players,
+            num_games=config.selfplay_games,
+            device=device,
+            max_turns=sp_max_turns,
+            num_sims=config.selfplay_sims,
+            seed=cur_iter,
+            time_discount=config.time_discount,
+            reward_mode=config.reward_mode,
+            dirichlet_alpha=config.dirichlet_alpha,
+            dirichlet_mix=config.dirichlet_mix,
+            q_scale=config.q_scale,
         )
 
-        if use_league:
-            sp_metrics = run_league_selfplay(
-                net,
-                buffer,
-                league,
-                num_players=config.num_players,
-                num_games=config.selfplay_games,
-                device=device,
-                max_turns=sp_max_turns,
-                num_sims=config.selfplay_sims,
-                seed=cur_iter,
-                league_prob=config.league_opponent_prob,
-                time_discount=config.time_discount,
-                opponent_sims=config.league_opponent_sims,
-                reward_mode=config.reward_mode,
-                dirichlet_alpha=config.dirichlet_alpha,
-                dirichlet_mix=config.dirichlet_mix,
-                q_scale=config.q_scale,
+        if phase == "league" and len(league.list_entries()) > 0:
+            with perf.time("phase_selfplay_total"):
+                sp_metrics = run_league_selfplay(
+                    net,
+                    buffer,
+                    league,
+                    league_prob=config.league_opponent_prob,
+                    opponent_sims=config.league_opponent_sims,
+                    perf=perf_arg,
+                    **sp_common,
+                )
+            run.event(
+                "league_selfplay_done",
+                {"iter": cur_iter, "selfplay_kind": selfplay_kind, **sp_metrics},
             )
-            run.event("league_selfplay_done", {"iter": cur_iter, **sp_metrics})
+        elif phase == "bot":
+            with perf.time("phase_selfplay_total"):
+                sp_metrics = run_bot_selfplay(
+                    net,
+                    buffer,
+                    opus_prob=config.bot_selfplay_opus_prob,
+                    bot_policy=config.bot_policy,
+                    perf=perf_arg,
+                    **sp_common,
+                )
+            run.event(
+                "bot_selfplay_done",
+                {"iter": cur_iter, "selfplay_kind": selfplay_kind, **sp_metrics},
+            )
         else:
-            sp_metrics = run_selfplay(
-                net,
-                buffer=buffer,
-                num_games=config.selfplay_games,
-                num_players=config.num_players,
-                num_sims=config.selfplay_sims,
-                max_turns=sp_max_turns,
-                device=device,
-                seed=cur_iter,
-                time_discount=config.time_discount,
-                reward_mode=config.reward_mode,
-                dirichlet_alpha=config.dirichlet_alpha,
-                dirichlet_mix=config.dirichlet_mix,
-                q_scale=config.q_scale,
+            if phase == "league":
+                run.event(
+                    "league_selfplay_skipped",
+                    {"iter": cur_iter, "reason": "empty_league"},
+                    level="WARNING",
+                )
+            with perf.time("phase_selfplay_total"):
+                sp_metrics = run_selfplay(
+                    net,
+                    buffer,
+                    on_progress=_selfplay_progress,
+                    perf=perf_arg,
+                    **sp_common,
+                )
+            run.event(
+                "selfplay_done",
+                {"iter": cur_iter, "selfplay_kind": selfplay_kind, **sp_metrics},
             )
-            run.event("selfplay_done", {"iter": cur_iter, **sp_metrics})
 
         if buffer.size >= config.learner_batch:
             run.write_heartbeat({"iter": cur_iter, "phase": "learner"})
             net.train()
             accum = {"loss": 0.0, "policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0}
             steps = 0
-            for _ in range(config.learner_steps_per_iter):
-                m = step_from_buffer(
-                    net,
-                    buffer,
-                    optim,
-                    batch_size=config.learner_batch,
-                    num_players=config.num_players,
-                    entropy_bonus=config.entropy_bonus,
-                    grad_scaler=grad_scaler,
+            skipped_steps = 0
+            with perf.time("phase_learner_total"):
+                if not net_parameters_finite(net):
+                    _recover_training("nonfinite_weights_before_learner")
+                for _ in range(config.learner_steps_per_iter):
+                    m = step_from_buffer(
+                        net,
+                        buffer,
+                        optim,
+                        batch_size=config.learner_batch,
+                        num_players=config.num_players,
+                        entropy_bonus=config.entropy_bonus,
+                        perf=perf_arg,
+                    )
+                    if m.get("skipped", 0.0) > 0:
+                        skipped_steps += 1
+                        continue
+                    for k, v in m.items():
+                        if k == "skipped":
+                            continue
+                        accum[k] = accum.get(k, 0.0) + v
+                    steps += 1
+            accum["learner_steps_skipped"] = skipped_steps
+            accum["learner_steps_ok"] = steps
+            if steps == 0:
+                accum["loss"] = float("nan")
+                accum["policy_loss"] = float("nan")
+                accum["value_loss"] = float("nan")
+                accum["entropy"] = float("nan")
+                run.event(
+                    "learner_all_steps_skipped",
+                    {"iter": cur_iter, "skipped": skipped_steps},
+                    level="WARNING",
                 )
-                for k, v in m.items():
-                    accum[k] = accum.get(k, 0.0) + v
-                steps += 1
-            for k in accum:
-                accum[k] /= max(steps, 1)
+            else:
+                for k in ("loss", "policy_loss", "value_loss", "entropy"):
+                    accum[k] /= steps
             run.event("learner_done", {"iter": cur_iter, **accum})
+            if steps == 0 or not net_parameters_finite(net):
+                _recover_training(
+                    "learner_all_steps_skipped"
+                    if steps == 0
+                    else "nonfinite_weights_after_learner"
+                )
         else:
             run.event("learner_skipped", {"iter": cur_iter, "buffer_size": buffer.size})
 
@@ -342,8 +519,10 @@ def run_loop(
             path = run.ckpt_dir / f"iter_{cur_iter:06d}.pt"
             resume_path = run.ckpt_dir / "latest_resume.pt"
             cfg_dict = dataclasses.asdict(config)
-            save_checkpoint(path, net, optim, cur_iter, cfg_dict, buffer=None)
-            save_checkpoint(resume_path, net, optim, cur_iter, cfg_dict, buffer=buffer)
+            ckpt_buffer = buffer if config.save_buffer_in_checkpoints else None
+            with perf.time("checkpoint_save"):
+                save_checkpoint(path, net, optim, cur_iter, cfg_dict, buffer=None)
+                save_checkpoint(resume_path, net, optim, cur_iter, cfg_dict, buffer=ckpt_buffer)
             run.write_state(
                 {
                     "iter": cur_iter,
@@ -358,11 +537,13 @@ def run_loop(
                 for old in ckpts[: -config.keep_recent_checkpoints]:
                     old.unlink(missing_ok=True)
 
-            entry = league.add_checkpoint(net, tag=f"i{cur_iter}", iteration=cur_iter)
+            with perf.time("league_add_checkpoint"):
+                entry = league.add_checkpoint(net, tag=f"i{cur_iter}", iteration=cur_iter)
             _last_eval_entity = f"ckpt:{entry['idx']}"
 
             if eval_handle.is_active():
-                prev = eval_handle.wait_and_collect()
+                with perf.time("eval_wait_collect"):
+                    prev = eval_handle.wait_and_collect()
                 if prev and "error" not in prev[1]:
                     ratings = _apply_eval_results(
                         league, prev[1], _last_eval_entity, _last_eval_league_map
@@ -373,18 +554,41 @@ def run_loop(
                     )
 
             if config.eval_games > 0:
-                league_paths = _get_league_opponent_paths(
-                    league, config.eval_league_opponents, seed=cur_iter * 31
-                )
-                _last_eval_league_map = {}
-                for i, lpath in enumerate(league_paths):
-                    for e in league.list_entries():
-                        if str(league._resolve_path(e["path"])) == lpath:
-                            _last_eval_league_map[f"league_{i}"] = int(e["idx"])
-                            break
-                snapshot = {k: v.detach().cpu().clone() for k, v in net.state_dict().items()}
-                eval_handle.launch(snapshot, league_paths, cur_iter, seed=cur_iter * 7)
+                with perf.time("eval_launch_prepare"):
+                    league_paths = _get_league_opponent_paths(
+                        league, config.eval_league_opponents, seed=cur_iter * 31
+                    )
+                    _last_eval_league_map = {}
+                    for i, lpath in enumerate(league_paths):
+                        for e in league.list_entries():
+                            if str(league._resolve_path(e["path"])) == lpath:
+                                _last_eval_league_map[f"league_{i}"] = int(e["idx"])
+                                break
+                    snapshot = {k: v.detach().cpu().clone() for k, v in net.state_dict().items()}
+                with perf.time("eval_launch_process"):
+                    eval_handle.launch(snapshot, league_paths, cur_iter, seed=cur_iter * 7)
                 run.event("unified_eval_launched", {"iter": cur_iter})
+
+        if config.profile_training and iter_resource_start is not None:
+            profile_fields = {
+                "iter": cur_iter,
+                "selfplay_kind": selfplay_kind,
+                "buffer_size": buffer.size,
+                **resource_delta(iter_resource_start, resource_snapshot()),
+                **perf.snapshot(),
+                **cuda_memory_snapshot(device),
+                **nvidia_smi_snapshot(),
+            }
+            profile_wall_s = float(profile_fields.get("profile_wall_s", 0.0))
+            if profile_wall_s > 0:
+                profile_fields["profile_samples_added_per_s"] = round(
+                    float(sp_metrics.get("samples_added", 0)) / profile_wall_s, 3
+                )
+                profile_fields["profile_games_finished_per_s"] = round(
+                    float(sp_metrics.get("finished", 0)) / profile_wall_s, 3
+                )
+            run.event("iter_profile", profile_fields)
+            run.metric(profile_fields)
 
         print(
             f"Iter {cur_iter}: buf={buffer.size}, "
@@ -400,13 +604,14 @@ def run_loop(
     eval_handle.cleanup()
 
     final_resume = run.ckpt_dir / "latest_resume.pt"
+    final_buffer = buffer if config.save_buffer_in_checkpoints else None
     save_checkpoint(
         final_resume,
         net,
         optim,
         cur_iter,
         dataclasses.asdict(config),
-        buffer=buffer,
+        buffer=final_buffer,
     )
     run.event("loop_end", {"iter": cur_iter})
     return {"iter": cur_iter}

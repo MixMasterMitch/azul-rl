@@ -1,4 +1,10 @@
-"""League management: persistent pool of checkpoints with ratings."""
+"""League of past checkpoints plus aggregate match results.
+
+A league directory holds numbered checkpoint files and ``league.json`` with
+checkpoint metadata and an aggregated head-to-head result table. Ratings are
+fit per player count from that table, anchored so ``random=1000``. Per-PC
+ratings are calibrated and averaged to produce a combined rating.
+"""
 
 from __future__ import annotations
 
@@ -6,39 +12,131 @@ import json
 import os
 import pathlib
 import random
-from typing import Optional
+from typing import List, Optional
 
 import torch
 
 from ..net import model as M
 from . import checkpointing as CK
-from .ranking import DEFAULT_ANCHORS, fit_anchored_ratings
+from . import ranking as R
+
+_ANCHOR_BOTS = ("random", "heuristic", "heuristic_opus")
+
+
+def _record_anchor_winrates(
+    entry: dict,
+    entity: str,
+    results: list[dict],
+) -> None:
+    for pc in R.PLAYER_COUNTS:
+        for anchor in _ANCHOR_BOTS:
+            score, total = R.winrate_vs_anchor(results, entity, anchor, pc)
+            games_key = f"games_{pc}p_vs_{anchor}"
+            wr_key = f"winrate_{pc}p_vs_{anchor}"
+            if total > 0:
+                entry[games_key] = int(total)
+                entry[wr_key] = round(score / total, 4)
+            else:
+                entry.pop(games_key, None)
+                entry.pop(wr_key, None)
 
 
 class League:
-    """Manages a pool of training checkpoints with Bradley-Terry ratings."""
-
     def __init__(
         self,
-        root: str | pathlib.Path,
-        max_entries: int = 24,
+        root: pathlib.Path | str,
+        max_entries: int | None = 24,
         keep_recent: int = 8,
         anchors: Optional[dict[str, float]] = None,
     ):
         self.root = pathlib.Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.manifest_path = self.root / "league.json"
+        self._net_cache: dict[tuple[str, str], M.AzulNet] = {}
         self.max_entries = max_entries
         self.keep_recent = keep_recent
-        self._net_cache: dict[str, M.AzulNet] = {}
-
         if self.manifest_path.exists():
-            self.manifest = json.loads(self.manifest_path.read_text())
+            with open(self.manifest_path) as f:
+                self.manifest = json.load(f)
         else:
             self.manifest = {}
         self.manifest.setdefault("entries", [])
         self.manifest.setdefault("results", [])
-        self.manifest.setdefault("anchors", dict(anchors or DEFAULT_ANCHORS))
+        self.manifest.setdefault("anchors", dict(anchors or R.DEFAULT_ANCHORS))
+        self._migrate_absolute_paths()
+        self._migrate_legacy_results()
+        self._migrate_legacy_manifest_if_needed()
+
+    def _resolve_path(self, stored: str) -> pathlib.Path:
+        p = pathlib.Path(stored)
+        if p.is_absolute():
+            return p
+        under_root = self.root / p
+        if under_root.exists():
+            return under_root
+        if p.exists():
+            return p.resolve()
+        # Manifest may store repo-relative paths (e.g. agent/runs/league/ckpt.pt).
+        if self.root.name in p.parts:
+            idx = p.parts.index(self.root.name)
+            suffix = pathlib.Path(*p.parts[idx + 1 :])
+            candidate = self.root / suffix
+            if candidate.exists():
+                return candidate
+        if (self.root / p.name).exists():
+            return self.root / p.name
+        return under_root
+
+    def _entry_available(self, entry: dict) -> bool:
+        path_str = entry.get("path", "")
+        if not path_str:
+            return False
+        return self._resolve_path(path_str).exists()
+
+    def _to_relative_path(self, p: pathlib.Path | str) -> str:
+        try:
+            return str(pathlib.Path(p).relative_to(self.root))
+        except ValueError:
+            return str(p)
+
+    def _migrate_absolute_paths(self) -> None:
+        changed = False
+        for entry in self.manifest.get("entries", []):
+            raw = entry.get("path", "")
+            p = pathlib.Path(raw)
+            if p.is_absolute():
+                candidate = self.root / p.name
+                if candidate.exists():
+                    entry["path"] = p.name
+                    changed = True
+                else:
+                    try:
+                        entry["path"] = str(p.relative_to(self.root))
+                    except ValueError:
+                        entry["path"] = p.name
+                    changed = True
+        if changed:
+            self._save_manifest()
+
+    def _migrate_legacy_results(self) -> None:
+        """Convert old ``wins_a``/``wins_b`` rows to per-player-count keys."""
+        changed = False
+        for row in self.manifest.get("results", []):
+            if any(k.startswith("wins_a_") and k.endswith("p") for k in row):
+                continue
+            if "wins_a" not in row and "wins_b" not in row:
+                continue
+            pc = int(row.get("num_players", 2))
+            row[f"wins_a_{pc}p"] = int(row.pop("wins_a", 0))
+            row[f"wins_b_{pc}p"] = int(row.pop("wins_b", 0))
+            ties = int(row.pop("ties", 0))
+            if ties:
+                row[f"ties_{pc}p"] = ties
+            row.pop("num_players", None)
+            row.pop("games", None)
+            changed = True
+        if changed:
+            self._save_manifest()
 
     def _save_manifest(self) -> None:
         tmp = self.manifest_path.with_suffix(".json.tmp")
@@ -46,139 +144,370 @@ class League:
             json.dump(self.manifest, f, indent=2)
         os.replace(tmp, self.manifest_path)
 
-    def _resolve_path(self, stored: str) -> pathlib.Path:
-        p = pathlib.Path(stored)
-        if p.is_absolute():
-            return p
-        return self.root / p
+    def _entry_strength_key(self, entry: dict) -> tuple[float, float, float, float, float]:
+        return (
+            self._entry_rating(entry),
+            float(entry.get("score_hint", 0.0)),
+            float(entry.get("winrate_vs_heuristic", 0.0)) + 0.5 * float(
+                entry.get("ties_vs_heuristic", 0.0)
+            ),
+            float(entry.get("finished_vs_heuristic", 0.0)),
+            -float(
+                entry.get(
+                    "avg_finished_step_vs_heuristic",
+                    entry.get("avg_turns_vs_heuristic", float("inf")),
+                )
+            ),
+        )
 
-    def _entry_available(self, entry: dict) -> bool:
-        path_str = entry.get("path", "")
-        return bool(path_str) and self._resolve_path(path_str).exists()
+    def _entry_entity_id(self, idx: int) -> str:
+        return f"ckpt:{idx}"
 
-    def list_entries(self) -> list[dict]:
-        return list(self.manifest.get("entries", []))
+    def _entry_rating(self, entry: dict) -> float:
+        return float(entry.get("rating", R.DEFAULT_INITIAL_RATING))
 
-    def latest_entry(self) -> Optional[dict]:
-        entries = self.list_entries()
-        return entries[-1] if entries else None
+    def _active_entity_ids(self) -> set[str]:
+        out = set(self.manifest["anchors"])
+        for entry in self.manifest["entries"]:
+            if entry.get("active", True):
+                out.add(self._entry_entity_id(int(entry["idx"])))
+        return out
+
+    def _record_entry_baselines_from_metadata(self, entry: dict) -> bool:
+        entity = self._entry_entity_id(int(entry["idx"]))
+        wrote_any = False
+        use_rank = "rank_winrate_vs_random" in entry or "rank_winrate_vs_heuristic" in entry
+        prefix = "rank_" if use_rank else ""
+        total_games = 512 if use_rank else 256
+        for opponent in ("random", "heuristic", "heuristic_opus"):
+            winrate_key = f"{prefix}winrate_vs_{opponent}"
+            if winrate_key not in entry:
+                continue
+            tie_key = f"{prefix}ties_vs_{opponent}"
+            wins = int(round(total_games * float(entry.get(winrate_key, 0.0))))
+            ties = int(round(total_games * float(entry.get(tie_key, 0.0))))
+            losses = max(int(total_games) - wins - ties, 0)
+            self.record_result(entity, opponent, float(wins), float(losses), float(ties))
+            wrote_any = True
+        return wrote_any
+
+    def _migrate_legacy_manifest_if_needed(self) -> None:
+        if self.manifest.get("results"):
+            return
+        wrote_any = False
+        for entry in self.manifest["entries"]:
+            wrote_any = self._record_entry_baselines_from_metadata(entry) or wrote_any
+        if wrote_any:
+            self.recompute_ratings()
+
+    def _drop_entry(self, entry: dict) -> None:
+        path = self._resolve_path(entry["path"])
+        if path.exists():
+            path.unlink()
+        entry["active"] = False
+        for key in list(self._net_cache):
+            if key[0] == str(path):
+                del self._net_cache[key]
+
+    def _prune_entries(self) -> None:
+        if self.max_entries is None:
+            return
+        entries = list(self.manifest["entries"])
+        if len(entries) <= self.max_entries:
+            return
+        keep_recent = min(max(self.keep_recent, 0), self.max_entries)
+        recent = entries[-keep_recent:] if keep_recent > 0 else []
+        older = entries[:-keep_recent] if keep_recent > 0 else entries
+        keep_best = max(self.max_entries - len(recent), 0)
+
+        per_pc_slots = max(keep_best // 4, 1)
+        combined_slots = keep_best
+
+        keep_set: set[str] = set()
+        by_combined = sorted(older, key=self._entry_strength_key, reverse=True)
+        for entry in by_combined[:combined_slots]:
+            keep_set.add(entry["path"])
+
+        for pc_key in ("rating_2p", "rating_3p", "rating_4p"):
+            by_pc = sorted(
+                older,
+                key=lambda e, k=pc_key: float(e.get(k, 0.0)),
+                reverse=True,
+            )
+            for entry in by_pc[:per_pc_slots]:
+                keep_set.add(entry["path"])
+
+        keep_paths = {entry["path"] for entry in recent}
+        keep_paths.update(keep_set)
+
+        for entry in entries:
+            if entry["path"] not in keep_paths:
+                self._drop_entry(entry)
 
     def add_checkpoint(
         self,
         net: M.AzulNet,
         tag: str = "",
         iteration: int = 0,
+        metadata: Optional[dict] = None,
     ) -> dict:
-        """Save net weights into the league and append manifest entry."""
-        idx = len(self.manifest["entries"])
+        next_idx = (
+            max((int(entry["idx"]) for entry in self.manifest["entries"]), default=-1) + 1
+        )
+        idx = next_idx
         rel_name = f"ckpt_{idx:05d}_{tag}.pt" if tag else f"ckpt_{idx:05d}.pt"
-        dest = self.root / rel_name
-        CK.save_checkpoint(dest, net, iteration=iteration)
+        path = self.root / rel_name
+        CK.save_checkpoint(path, net, iteration=iteration)
         entry = {
             "idx": idx,
             "tag": tag,
-            "path": rel_name,
+            "path": self._to_relative_path(path),
             "iteration": iteration,
+            "rating": float(R.DEFAULT_INITIAL_RATING),
             "games": 0,
+            "hidden": int(net.hidden),
+            "arch": str(net.arch),
+            "active": True,
         }
         self.manifest["entries"].append(entry)
-        if self.max_entries and len(self.manifest["entries"]) > self.max_entries:
-            self._prune()
+        if metadata:
+            for key, value in metadata.items():
+                if isinstance(value, (int, float, str, bool)) or value is None:
+                    entry[key] = value
+        self._prune_entries()
         self._save_manifest()
         return entry
 
+    def list_entries(self) -> List[dict]:
+        return list(self.manifest["entries"])
+
+    def latest_entry(self) -> Optional[dict]:
+        if not self.manifest["entries"]:
+            return None
+        return self.manifest["entries"][-1]
+
+    def entry_by_idx(self, idx: int) -> Optional[dict]:
+        for entry in self.manifest["entries"]:
+            if int(entry["idx"]) == idx:
+                return entry
+        return None
+
+    def load_cached_net(
+        self,
+        path: str | pathlib.Path,
+        device: torch.device | str = "cpu",
+    ) -> M.AzulNet:
+        resolved = self._resolve_path(str(path))
+        path_str = str(resolved)
+        device_t = torch.device(device)
+        key = (path_str, str(device_t))
+        cached = self._net_cache.get(key)
+        if cached is not None:
+            return cached
+        net, _ = CK.load_net_from_checkpoint(pathlib.Path(path_str), map_location=device_t)
+        net = net.to(device_t)
+        net.eval()
+        self._net_cache[key] = net
+        return net
+
+    def load_net(self, path: str, device: str = "cpu") -> M.AzulNet:
+        """Backward-compatible alias for :meth:`load_cached_net`."""
+        return self.load_cached_net(path, device=device)
+
+    def sample_opponent(self, rng: Optional[random.Random] = None) -> Optional[dict]:
+        if not self.manifest["entries"]:
+            return None
+        if rng is None:
+            rng = random.Random()
+        entries = [e for e in self.manifest["entries"] if self._entry_available(e)]
+        if not entries:
+            return None
+        weights = []
+        for i, e in enumerate(entries):
+            recency = 1.0 + i
+            rel = (self._entry_rating(e) - R.DEFAULT_INITIAL_RATING) / 800.0
+            rel = max(min(rel, 4.0), -4.0)
+            weights.append(recency * (10**rel))
+        tot = sum(weights)
+        r = rng.random() * tot
+        acc = 0.0
+        for i, w in enumerate(weights):
+            acc += w
+            if acc >= r:
+                return entries[i]
+        return entries[-1]
+
+    def sample_opponent_path(self, rng: Optional[random.Random] = None) -> Optional[str]:
+        entry = self.sample_opponent(rng)
+        if entry is None:
+            return None
+        return str(self._resolve_path(entry["path"]))
+
+    def top_opponent_entry(self) -> Optional[dict]:
+        """Highest-rated available league checkpoint (for eval / tuning)."""
+        entries = [e for e in self.manifest["entries"] if self._entry_available(e)]
+        if not entries:
+            return None
+        return max(entries, key=self._entry_strength_key)
+
+    def rating_candidates(self, exclude_idx: int | None = None, limit: int = 4) -> List[dict]:
+        if limit <= 0:
+            return []
+        entries = [
+            entry
+            for entry in self.manifest["entries"]
+            if (exclude_idx is None or int(entry["idx"]) != exclude_idx)
+            and self._entry_available(entry)
+        ]
+        if not entries:
+            return []
+        recent_n = max(1, limit // 2)
+        best_n = max(limit - recent_n, 0)
+        recent = list(reversed(entries[-recent_n:]))
+        best = sorted(entries, key=self._entry_strength_key, reverse=True)[:best_n]
+        out: list[dict] = []
+        seen: set[int] = set()
+        for group in (recent, best):
+            for entry in group:
+                idx = int(entry["idx"])
+                if idx in seen:
+                    continue
+                seen.add(idx)
+                out.append(entry)
+                if len(out) >= limit:
+                    return out
+        return out
+
     def record_result(
         self,
-        winner: str,
-        loser: str,
-        wins_w: float,
-        wins_l: float,
+        entity_a: str,
+        entity_b: str,
+        wins_a: float,
+        wins_b: float,
         ties: float = 0.0,
         num_players: int = 2,
     ) -> None:
-        key_w = f"wins_{winner}"
-        for r in self.manifest["results"]:
-            if r.get("a") == winner and r.get("b") == loser:
-                r["wins_a"] = r.get("wins_a", 0) + wins_w
-                r["wins_b"] = r.get("wins_b", 0) + wins_l
-                r["ties"] = r.get("ties", 0) + ties
-                r["num_players"] = num_players
-                self._save_manifest()
-                return
-            if r.get("a") == loser and r.get("b") == winner:
-                r["wins_a"] = r.get("wins_a", 0) + wins_l
-                r["wins_b"] = r.get("wins_b", 0) + wins_w
-                r["ties"] = r.get("ties", 0) + ties
-                r["num_players"] = num_players
-                self._save_manifest()
-                return
-        self.manifest["results"].append({
-            "a": winner,
-            "b": loser,
-            "wins_a": wins_w,
-            "wins_b": wins_l,
-            "ties": ties,
-            "num_players": num_players,
-        })
-        self._save_manifest()
-
-    def recompute_ratings(self) -> dict[str, float]:
-        if not self.manifest["results"]:
-            return {}
-        ratings = fit_anchored_ratings(
+        R.add_match_result(
             self.manifest["results"],
-            anchors=dict(self.manifest.get("anchors", DEFAULT_ANCHORS)),
+            entity_a,
+            entity_b,
+            wins_a,
+            wins_b,
+            ties,
+            num_players=num_players,
         )
-        self.manifest["ratings"] = ratings
+
+    def record_checkpoint_baselines(
+        self,
+        idx: int,
+        row: dict,
+        rank_games: int,
+        eval_games: int,
+    ) -> None:
+        entity = self._entry_entity_id(idx)
+        use_rank = "rank_winrate_vs_random" in row or "rank_winrate_vs_heuristic" in row
+        prefix = "rank_" if use_rank else ""
+        total_games = rank_games if use_rank else eval_games
+        for opponent in ("random", "heuristic", "heuristic_opus"):
+            winrate_key = f"{prefix}winrate_vs_{opponent}"
+            if winrate_key not in row:
+                continue
+            tie_key = f"{prefix}ties_vs_{opponent}"
+            wins = int(round(total_games * float(row.get(winrate_key, 0.0))))
+            ties = int(round(total_games * float(row.get(tie_key, 0.0))))
+            losses = max(total_games - wins - ties, 0)
+            self.record_result(entity, opponent, float(wins), float(losses), float(ties))
+
+    def recompute_ratings(self, extra_anchors: dict[str, float] | None = None) -> dict[str, float]:
+        initial = {
+            self._entry_entity_id(int(entry["idx"])): self._entry_rating(entry)
+            for entry in self.manifest["entries"]
+        }
+        anchors = dict(self.manifest["anchors"])
+        if extra_anchors:
+            anchors.update(extra_anchors)
+        ref_anchors = R.reference_anchors_from_manifest(self.manifest)
+        ratings_data = R.compute_ratings(
+            self.manifest["results"],
+            anchors=anchors,
+            initial=initial,
+            reference_anchors_per_pc=ref_anchors,
+        )
+        ratings: dict[str, float] = {}
+        for entity, data in ratings_data.items():
+            if data["rating"] is not None:
+                ratings[entity] = round(data["rating"])
+
+        games_by_entity: dict[str, float] = {key: 0.0 for key in ratings}
+        for row in self.manifest["results"]:
+            row_total = 0.0
+            for pc in R.PLAYER_COUNTS:
+                wa = float(row.get(f"wins_a_{pc}p", 0))
+                wb = float(row.get(f"wins_b_{pc}p", 0))
+                ties = float(row.get(f"ties_{pc}p", 0))
+                pairwise_count = wa + wb + ties
+                if pairwise_count > 0:
+                    row_total += pairwise_count / (pc - 1)
+            if row_total == 0:
+                row_total = float(row.get("games", 0))
+            games_by_entity[row["a"]] = games_by_entity.get(row["a"], 0.0) + row_total
+            games_by_entity[row["b"]] = games_by_entity.get(row["b"], 0.0) + row_total
+
+        for entry in self.manifest["entries"]:
+            entity = self._entry_entity_id(int(entry["idx"]))
+            if entity in ratings:
+                entry["rating"] = round(float(ratings[entity]))
+                entry.pop("elo", None)
+                entry["games"] = int(games_by_entity.get(entity, 0))
+                data = ratings_data.get(entity, {})
+                for pc in R.PLAYER_COUNTS:
+                    cal_key = f"calibrated_{pc}p"
+                    if cal_key in data:
+                        entry[f"rating_{pc}p"] = round(data[cal_key])
+            _record_anchor_winrates(entry, entity, self.manifest["results"])
+
+        entry_entities = {self._entry_entity_id(int(e["idx"])) for e in self.manifest["entries"]}
+        anchor_entities = set(self.manifest["anchors"])
+        floating: dict[str, dict] = {}
+        for entity, data in ratings_data.items():
+            if entity not in entry_entities and entity not in anchor_entities:
+                floating[entity] = {
+                    "rating": round(data["rating"]),
+                    "games": int(games_by_entity.get(entity, 0)),
+                }
+                for pc in R.PLAYER_COUNTS:
+                    cal_key = f"calibrated_{pc}p"
+                    if cal_key in data:
+                        floating[entity][f"rating_{pc}p"] = round(data[cal_key])
+                _record_anchor_winrates(
+                    floating[entity], entity, self.manifest["results"]
+                )
+        if floating:
+            self.manifest["floating_entities"] = floating
+        self.manifest["rating_system"] = "anchored_bt_per_pc"
+        self.manifest.pop("ratings", None)
         self._save_manifest()
         return ratings
 
-    def sample_opponent_path(self, rng: Optional[random.Random] = None) -> Optional[str]:
-        entries = [e for e in self.list_entries() if self._entry_available(e)]
-        if not entries:
-            return None
-        rng = rng or random.Random()
-        weights = []
-        ratings = self.manifest.get("ratings", {})
-        for i, entry in enumerate(entries):
-            recency = 2.0 ** (i - len(entries) + 1)
-            entity = f"ckpt:{entry['idx']}"
-            rating = ratings.get(entity, ratings.get(entry.get("id", ""), 1500.0))
-            weights.append(recency * max(float(rating) / 1000.0, 0.5))
-        chosen = rng.choices(entries, weights=weights, k=1)[0]
-        return str(self._resolve_path(chosen["path"]))
+    def update_rating(self, idx: int, new_rating: float, games_played: int) -> None:
+        e = self.entry_by_idx(idx)
+        if e is None:
+            return
+        e["rating"] = round(new_rating)
+        e.pop("elo", None)
+        e["games"] = games_played
+        self._save_manifest()
 
-    def load_net(self, path: str, device: str = "cpu") -> M.AzulNet:
-        if path in self._net_cache:
-            return self._net_cache[path]
-        net, _ = CK.load_net_from_checkpoint(path, map_location=device)
-        net.eval()
-        self._net_cache[path] = net
-        return net
+    def update_entry_fields(self, idx: int, fields: dict) -> None:
+        entry = self.entry_by_idx(idx)
+        if entry is None:
+            return
+        for key, value in fields.items():
+            entry[key] = value
+        self._save_manifest()
 
     def get_entry_path(self, entry_id: str) -> Optional[pathlib.Path]:
         for entry in self.list_entries():
             if entry.get("id") == entry_id or f"ckpt:{entry.get('idx')}" == entry_id:
                 return self._resolve_path(entry["path"])
         return None
-
-    def _prune(self) -> None:
-        entries = self.manifest["entries"]
-        if len(entries) <= self.max_entries:
-            return
-        recent = entries[-self.keep_recent :]
-        older = entries[: -self.keep_recent]
-        ratings = self.manifest.get("ratings", {})
-        older.sort(
-            key=lambda e: ratings.get(f"ckpt:{e['idx']}", 0),
-            reverse=True,
-        )
-        keep_older = max(0, self.max_entries - len(recent))
-        kept = older[:keep_older]
-        removed = older[keep_older:] + entries[: max(0, len(entries) - self.max_entries)]
-        for entry in removed:
-            if entry not in kept and entry not in recent:
-                p = self._resolve_path(entry["path"])
-                if p.exists():
-                    p.unlink(missing_ok=True)
-        self.manifest["entries"] = kept + recent

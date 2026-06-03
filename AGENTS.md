@@ -38,7 +38,8 @@ This repo trains, evaluates, and serves an Azul-playing AI using Gumbel AlphaZer
 
 ### Training
 - Self-play generates improved policies via Gumbel MCTS
-- Value targets: +1 winner, -1 losers, -1 all on stall (max_turns exceeded)
+- Value targets: +1 sole winner, -1 losers; self-play skips replay samples from stall-capped games
+- Winner tiebreak (official): highest score → most complete horizontal rows → shared victory
 - Loop is resumable: `state.json` + checkpoint files
 
 ### Frontend

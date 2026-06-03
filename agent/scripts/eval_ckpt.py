@@ -15,6 +15,8 @@ def main() -> None:
     parser.add_argument("--num-games", type=int, default=256)
     parser.add_argument("--num-players", type=int, default=2)
     parser.add_argument("--device", type=str, default="auto")
+    parser.add_argument("--num-sims", type=int, default=32)
+    parser.add_argument("--q-scale", type=float, default=10.0)
     args = parser.parse_args()
 
     device = resolve_device(args.device)
@@ -23,8 +25,13 @@ def main() -> None:
         net,
         num_games=args.num_games,
         num_players=args.num_players,
+        num_sims=args.num_sims,
         device=device,
+        q_scale=args.q_scale,
     )
+    from ..eval.tournament import combined_winrate
+
+    print(f"combined_winrate: {combined_winrate(metrics):.3f}")
     for k, v in sorted(metrics.items()):
         print(f"{k}: {v:.3f}")
 

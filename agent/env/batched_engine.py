@@ -26,6 +26,9 @@ The engine handles the full game loop:
 1. Factory offer phase: players take turns picking tiles
 2. Wall-tiling phase: automatic scoring when all tiles are taken
 3. Next round setup: refill factories from bag
+
+Winner resolution (official rules): highest score, then most complete horizontal
+rows; if still tied, shared victory (no single winner).
 """
 
 from __future__ import annotations
@@ -37,16 +40,87 @@ import torch
 from . import actions as A
 from . import tiles as T
 
+# get_winners() return values
+NO_WINNER = -1  # game not finished
+SHARED_VICTORY = -2  # tie after score + row tiebreakers (official shared win)
+
+TOTAL_TILES: int = T.TOTAL_TILES
+
 MAX_PLAYERS: int = A.MAX_PLAYERS
 MAX_FACTORIES: int = A.MAX_FACTORIES
 NUM_COLORS: int = A.NUM_COLORS
 NUM_ACTIONS: int = A.NUM_ACTIONS
 FLOOR_SIZE: int = A.FLOOR_SIZE
 FLOOR_PENALTIES: list[int] = A.FLOOR_PENALTIES
+_ACTIONS_PER_SOURCE: int = NUM_COLORS * A.NUM_TARGETS
 
 def _rng_device_for(device: torch.device) -> str:
     """PyTorch Generator device must match multinomial input (CUDA or CPU only)."""
     return "cuda" if device.type == "cuda" else "cpu"
+
+
+def _cumulative_floor_penalties(device: torch.device) -> torch.Tensor:
+    """Indexed by floor_count (0..FLOOR_SIZE); matches scalar sum(FLOOR_PENALTIES[:n])."""
+    cum = [0]
+    total = 0
+    for p in FLOOR_PENALTIES:
+        total += p
+        cum.append(total)
+    while len(cum) < FLOOR_SIZE + 1:
+        cum.append(cum[-1])
+    return torch.tensor(cum, dtype=torch.int16, device=device)
+
+
+def _score_completed_placements_batch(
+    wall: torch.Tensor,
+    row: int,
+    col: torch.Tensor,
+) -> torch.Tensor:
+    """Vectorized Azul placement score for one row with variable columns."""
+    n = wall.shape[0]
+    batch_idx = torch.arange(n, device=wall.device)
+
+    h_count = torch.ones((n,), dtype=torch.int16, device=wall.device)
+    active = torch.ones((n,), dtype=torch.bool, device=wall.device)
+    for step in range(1, 5):
+        c = col - step
+        active = active & (c >= 0)
+        hit = active & wall[batch_idx, row, c.clamp(0, 4)]
+        h_count += hit.to(torch.int16)
+        active = hit
+
+    active = torch.ones((n,), dtype=torch.bool, device=wall.device)
+    for step in range(1, 5):
+        c = col + step
+        active = active & (c < 5)
+        hit = active & wall[batch_idx, row, c.clamp(0, 4)]
+        h_count += hit.to(torch.int16)
+        active = hit
+
+    v_count = torch.ones((n,), dtype=torch.int16, device=wall.device)
+    active = torch.ones((n,), dtype=torch.bool, device=wall.device)
+    for step in range(1, 5):
+        r = row - step
+        if r < 0:
+            break
+        hit = active & wall[batch_idx, r, col]
+        v_count += hit.to(torch.int16)
+        active = hit
+
+    active = torch.ones((n,), dtype=torch.bool, device=wall.device)
+    for step in range(1, 5):
+        r = row + step
+        if r >= 5:
+            break
+        hit = active & wall[batch_idx, r, col]
+        v_count += hit.to(torch.int16)
+        active = hit
+
+    connected = (h_count > 1) | (v_count > 1)
+    linked = torch.where(h_count > 1, h_count, torch.zeros_like(h_count)) + torch.where(
+        v_count > 1, v_count, torch.zeros_like(v_count)
+    )
+    return torch.where(connected, linked, torch.ones_like(linked))
 
 
 _STATE_TENSOR_ATTRS = (
@@ -91,13 +165,6 @@ class BatchedEngine:
 
         self._init_state()
 
-    def _sample_bag_color(self, counts: torch.Tensor) -> int:
-        """Draw one color index from a length-5 count vector on the engine device."""
-        probs = counts.float()
-        if self.device.type == "cpu":
-            probs = probs.cpu()
-        return int(torch.multinomial(probs, 1, generator=self._rng).item())
-
     def _init_state(self) -> None:
         B = self.batch_size
         P = MAX_PLAYERS
@@ -124,46 +191,10 @@ class BatchedEngine:
 
         self._fill_factories()
 
-    def _next_floor_slot(self, b: int, player: int) -> int:
-        """Return the next empty floor slot index, or -1 if full."""
-        for i in range(FLOOR_SIZE):
-            if self.floor_slots[b, player, i].item() == -1:
-                return i
-        return -1
-
-    def _place_on_floor(self, b: int, player: int, count: int, slot_value: int) -> int:
-        """Place up to `count` items on the floor. Returns number actually placed."""
-        placed = 0
-        for _ in range(count):
-            idx = self._next_floor_slot(b, player)
-            if idx < 0:
-                break
-            self.floor_slots[b, player, idx] = slot_value
-            self.floor_count[b, player] += 1
-            if slot_value != A.FLOOR_MARKER:
-                self.floor_tiles[b, player, slot_value] += 1
-            placed += 1
-        return placed
-
     def _fill_factories(self) -> None:
         """Fill all factory displays with 4 tiles each from the bag."""
-        B = self.batch_size
-        for b in range(B):
-            for f in range(self.num_factories):
-                for _ in range(T.TILES_PER_FACTORY):
-                    available = self.bag[b].clone()
-                    total = available.sum().item()
-                    if total == 0:
-                        # Refill bag from box lid
-                        self.bag[b] = self.box_lid[b].clone()
-                        self.box_lid[b].zero_()
-                        available = self.bag[b].clone()
-                        total = available.sum().item()
-                        if total == 0:
-                            break
-                    color = self._sample_bag_color(available)
-                    self.bag[b, color] -= 1
-                    self.factory_tiles[b, f, color] += 1
+        rows = torch.arange(self.batch_size, device=self.device, dtype=torch.long)
+        self._fill_factories_batch(rows)
 
     def index_select(self, indices: torch.Tensor) -> "BatchedEngine":
         """Return a new engine containing only the selected batch rows."""
@@ -212,312 +243,483 @@ class BatchedEngine:
         """Returns (B, NUM_ACTIONS) bool mask of legal actions."""
         B = self.batch_size
         dev = self.device
-        mask = torch.zeros((B, NUM_ACTIONS), dtype=torch.bool, device=dev)
 
-        cp = self.current_player.long()  # (B,)
+        # Build per-source tile counts for the fixed action space layout.
+        # Active factories occupy sources 0..num_factories-1; center is source num_factories.
+        counts = torch.zeros((B, A.NUM_SOURCES, NUM_COLORS), dtype=torch.int16, device=dev)
+        if self.num_factories > 0:
+            counts[:, : self.num_factories] = self.factory_tiles[:, : self.num_factories].to(torch.int16)
+        counts[:, self.num_factories] = self.center_tiles.to(torch.int16)
 
-        for b in range(B):
-            if self.ended[b]:
-                continue
-            p = cp[b].item()
-            self._compute_legal_for_game(b, p, mask[b])
+        has_color = counts > 0  # (B, NUM_SOURCES, C)
 
-        return mask
+        # Pull the acting player's per-row state for each game in batch.
+        cp = self.current_player.to(torch.long)  # (B,)
+        b_idx = torch.arange(B, device=dev)
+        line_color = self.pattern_color[b_idx, cp].to(torch.int16)  # (B, 5)
+        line_count = self.pattern_count[b_idx, cp].to(torch.int16)  # (B, 5)
+        wall_cp = self.wall[b_idx, cp]  # (B, 5, 5) bool
 
-    def _compute_legal_for_game(
-        self, b: int, player: int, out: torch.Tensor
+        # For each (row, color), check whether that color can be placed on that pattern row.
+        # Conditions:
+        # - pattern line is empty OR already same color
+        # - pattern line not full
+        # - wall row does not already contain that color
+        capacities = torch.arange(1, 6, device=dev, dtype=torch.int16)  # (5,)
+        compat = (line_color == -1).unsqueeze(-1) | (line_color.unsqueeze(-1) == torch.arange(NUM_COLORS, device=dev, dtype=torch.int16))
+        not_full = (line_count < capacities.unsqueeze(0)).unsqueeze(-1)  # (B, 5, 1)
+
+        # wall_col[row, color] = (color + row) % 5, shape (5, 5)
+        rc = torch.arange(5, device=dev, dtype=torch.long)
+        cc = torch.arange(NUM_COLORS, device=dev, dtype=torch.long)
+        wall_col = (cc.unsqueeze(0) + rc.unsqueeze(1)) % 5  # (5, 5)
+
+        # wall_has[b, row, color] = wall_cp[b, row, wall_col[row, color]]
+        wall_has = wall_cp.gather(
+            2,
+            wall_col.unsqueeze(0).expand(B, -1, -1),
+        )  # (B, 5, 5)
+
+        legal_row_color = compat & not_full & (~wall_has)  # (B, 5, 5)
+
+        # Assemble full action mask in (source, color, target) layout.
+        legal_sct = torch.zeros(
+            (B, A.NUM_SOURCES, NUM_COLORS, A.NUM_TARGETS), dtype=torch.bool, device=dev
+        )
+
+        # Floor target always legal if the color exists at the source.
+        legal_sct[..., A.FLOOR_TARGET] = has_color
+
+        # Pattern line targets: require both "has_color at source" and row/color legality.
+        # Broadcast legal_row_color (B, row, color) to (B, source, color, row).
+        legal_src_color = has_color.unsqueeze(-1)  # (B, S, C, 1)
+        legal_color_row = legal_row_color.permute(0, 2, 1).unsqueeze(1)  # (B, 1, C, 5)
+        legal_sct[..., : A.NUM_PATTERN_LINES] = legal_src_color & legal_color_row
+
+        # Ended games have no legal actions.
+        if self.ended.any():
+            legal_sct = legal_sct & (~self.ended).view(B, 1, 1, 1)
+
+        # Flatten into action-index order: source-major, then color, then target.
+        return legal_sct.reshape(B, NUM_ACTIONS)
+
+    @staticmethod
+    def _decode_actions(actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Decode flat action indices into (source, color, target) tensors."""
+        source = actions // _ACTIONS_PER_SOURCE
+        rem = actions % _ACTIONS_PER_SOURCE
+        color = rem // A.NUM_TARGETS
+        target = rem % A.NUM_TARGETS
+        return source, color, target
+
+    def _place_on_floor_batch(
+        self,
+        sel: torch.Tensor,
+        players: torch.Tensor,
+        counts: torch.Tensor,
+        slot_values: torch.Tensor,
+    ) -> torch.Tensor:
+        """Place up to ``counts`` items on the floor for selected games. Returns placed counts."""
+        sel = sel.reshape(-1).to(torch.long)
+        players = players.reshape(-1).to(torch.long)
+        counts = counts.reshape(-1)
+        slot_values = slot_values.reshape(-1).to(torch.long)
+        if sel.numel() == 0:
+            return torch.zeros(0, dtype=torch.int16, device=self.device)
+
+        floor_count = self.floor_count[sel, players]
+        space = (FLOOR_SIZE - floor_count).clamp_min(0)
+        placed = torch.minimum(counts.to(torch.int16), space)
+
+        for k in range(FLOOR_SIZE):
+            can = placed > k
+            if not can.any():
+                break
+            slot_idx = (floor_count + k)[can].to(torch.long)
+            self.floor_slots[sel[can], players[can], slot_idx] = slot_values[can].to(
+                torch.int8
+            )
+
+        self.floor_count[sel, players] += placed
+        is_tile = slot_values != A.FLOOR_MARKER
+        tile_sel = is_tile & (placed > 0)
+        if tile_sel.any():
+            b = sel[tile_sel]
+            p = players[tile_sel]
+            colors = slot_values[tile_sel].long()
+            self.floor_tiles.index_put_(
+                (b, p, colors),
+                placed[tile_sel].to(torch.int8),
+                accumulate=True,
+            )
+        return placed
+
+    def total_tile_count(self) -> torch.Tensor:
+        """Per-game count of colored tiles (bag, lid, factories, center, pattern, wall, floor)."""
+        t = self.bag.sum(dim=1, dtype=torch.int32)
+        t = t + self.box_lid.sum(dim=1, dtype=torch.int32)
+        t = t + self.factory_tiles[:, : self.num_factories].sum(dim=(1, 2), dtype=torch.int32)
+        t = t + self.center_tiles.sum(dim=1, dtype=torch.int32)
+        t = t + self.pattern_count.sum(dim=(1, 2), dtype=torch.int32)
+        t = t + self.wall.sum(dim=(1, 2, 3), dtype=torch.int32)
+        t = t + self.floor_tiles.sum(dim=(1, 2), dtype=torch.int32)
+        return t
+
+    def _add_to_box_lid(
+        self,
+        sel: torch.Tensor,
+        colors: torch.Tensor,
+        amounts: torch.Tensor,
     ) -> None:
-        """Compute legal actions for a single game/player into `out`."""
-        for source in range(self.num_factories + 1):
-            # Get tile counts at this source
-            if source < self.num_factories:
-                tiles = self.factory_tiles[b, source]
-            else:
-                tiles = self.center_tiles[b]
+        """Add ``amounts`` tiles of ``colors`` to box lid for selected batch rows."""
+        if sel.numel() == 0:
+            return
+        sel = sel.reshape(-1).to(torch.long)
+        colors = colors.reshape(-1).to(torch.long)
+        amounts = amounts.reshape(-1).to(torch.int8)
+        self.box_lid.index_put_((sel, colors), amounts, accumulate=True)
 
-            for color in range(NUM_COLORS):
-                if tiles[color].item() <= 0:
-                    continue
+    def _pick_from_factory_vectorized(
+        self,
+        sel: torch.Tensor,
+        sources: torch.Tensor,
+        colors: torch.Tensor,
+    ) -> torch.Tensor:
+        """Pick one color from a factory; move leftovers to center. Returns tiles picked."""
+        sel = sel.reshape(-1).to(torch.long)
+        sources = sources.reshape(-1).to(torch.long)
+        colors = colors.reshape(-1).to(torch.long)
+        num_picked = self.factory_tiles[sel, sources, colors].to(torch.int16)
 
-                # This color exists at this source; check each target
-                for target in range(A.NUM_TARGETS):
-                    if target == A.FLOOR_TARGET:
-                        # Always legal to dump to floor
-                        idx = A.encode_action(source, color, target)
-                        out[idx] = True
-                    else:
-                        # Target is pattern line `target`
-                        row = target
-                        line_color = self.pattern_color[b, player, row].item()
-                        line_count = self.pattern_count[b, player, row].item()
-                        line_capacity = row + 1
+        fac_rows = self.factory_tiles[sel, sources, :].to(torch.int16)
+        to_center = fac_rows.clone()
+        to_center.scatter_(1, colors.unsqueeze(1), 0)
+        self.center_tiles[sel] = (self.center_tiles[sel].to(torch.int16) + to_center).to(
+            torch.int8
+        )
+        self.factory_tiles[sel, sources, :] = 0
+        return num_picked
 
-                        # Check: line is empty or same color
-                        if line_color != -1 and line_color != color:
-                            continue
-                        # Check: line is not already full
-                        if line_count >= line_capacity:
-                            continue
-                        # Check: wall row doesn't already have this color
-                        wall_col = A.wall_column_for_color(row, color)
-                        if self.wall[b, player, row, wall_col].item():
-                            continue
+    def _pick_from_center_vectorized(
+        self,
+        sel: torch.Tensor,
+        players: torch.Tensor,
+        colors: torch.Tensor,
+    ) -> torch.Tensor:
+        """Pick one color from the center; place first-player marker when applicable."""
+        sel = sel.reshape(-1).to(torch.long)
+        players = players.reshape(-1).to(torch.long)
+        colors = colors.reshape(-1).to(torch.long)
+        num_picked = self.center_tiles[sel, colors].to(torch.int16)
+        self.center_tiles[sel, colors] = 0
 
-                        idx = A.encode_action(source, color, target)
-                        out[idx] = True
+        fp = self.center_first[sel]
+        if fp.any():
+            fp_sel = sel[fp]
+            fp_players = players[fp]
+            self.center_first[fp_sel] = False
+            self.floor_first[fp_sel, fp_players] = True
+            ones = torch.ones(fp_sel.numel(), dtype=torch.int16, device=self.device)
+            markers = torch.full(
+                (fp_sel.numel(),), A.FLOOR_MARKER, dtype=torch.long, device=self.device
+            )
+            self._place_on_floor_batch(fp_sel, fp_players, ones, markers)
+        return num_picked
 
-    def step(self, actions: torch.Tensor) -> None:
+    def _advance_player_batch(self, sel: torch.Tensor) -> None:
+        """Move to the next active player for selected games."""
+        sel = sel.reshape(-1).to(torch.long)
+        if sel.numel() == 0:
+            return
+        cp = self.current_player[sel].to(torch.long)
+        updated = torch.zeros(sel.numel(), dtype=torch.bool, device=self.device)
+        for i in range(1, self.num_players + 1):
+            cand = (cp + i) % self.num_players
+            can = (~updated) & self.active_mask[sel, cand]
+            if can.any():
+                self.current_player[sel[can]] = cand[can].to(torch.int8)
+                updated = updated | can
+
+    def _step_offer_vectorized(self, actions: torch.Tensor) -> None:
+        """Batched factory-offer phase (pick, place, advance)."""
+        B = self.batch_size
+        dev = self.device
+        actions = actions.to(device=dev, dtype=torch.long).reshape(B)
+
+        active = ~self.ended
+        if not active.any():
+            return
+
+        source, color, target = self._decode_actions(actions)
+        b_idx = torch.arange(B, device=dev)
+        players = self.current_player.to(torch.long)
+
+        num_picked = torch.zeros(B, dtype=torch.int16, device=dev)
+
+        pick_factory = active & (source < self.num_factories)
+        if pick_factory.any():
+            sel = b_idx[pick_factory]
+            picked = self._pick_from_factory_vectorized(
+                sel, source[pick_factory], color[pick_factory]
+            )
+            num_picked[pick_factory] = picked
+
+        pick_center = active & (source == self.num_factories)
+        if pick_center.any():
+            sel = b_idx[pick_center]
+            picked = self._pick_from_center_vectorized(
+                sel, players[pick_center], color[pick_center]
+            )
+            num_picked[pick_center] = picked
+
+        to_floor = active & (target == A.FLOOR_TARGET)
+        if to_floor.any():
+            sel = b_idx[to_floor]
+            p = players[to_floor]
+            c = color[to_floor]
+            n = num_picked[to_floor]
+            placed = self._place_on_floor_batch(sel, p, n, c)
+            overflow = n - placed
+            has_overflow = overflow > 0
+            if has_overflow.any():
+                self._add_to_box_lid(sel[has_overflow], c[has_overflow], overflow[has_overflow])
+
+        to_pattern = active & (target < A.NUM_PATTERN_LINES)
+        if to_pattern.any():
+            sel = b_idx[to_pattern]
+            p = players[to_pattern]
+            row = target[to_pattern].to(torch.long)
+            c = color[to_pattern]
+            n = num_picked[to_pattern]
+
+            line_cap = (row + 1).to(torch.int16)
+            cur = self.pattern_count[sel, p, row].to(torch.int16)
+            space = (line_cap - cur).clamp_min(0)
+            placed = torch.minimum(n, space)
+            excess = n - placed
+
+            self.pattern_count[sel, p, row] = (
+                self.pattern_count[sel, p, row].to(torch.int16) + placed
+            ).to(torch.int8)
+            self.pattern_color[sel, p, row] = c.to(torch.int8)
+
+            has_excess = excess > 0
+            if has_excess.any():
+                ex_sel = sel[has_excess]
+                ex_p = p[has_excess]
+                ex_c = c[has_excess]
+                ex_n = excess[has_excess]
+                placed_floor = self._place_on_floor_batch(ex_sel, ex_p, ex_n, ex_c)
+                overflow = ex_n - placed_floor
+                has_overflow = overflow > 0
+                if has_overflow.any():
+                    self._add_to_box_lid(
+                        ex_sel[has_overflow], ex_c[has_overflow], overflow[has_overflow]
+                    )
+
+        self._advance_player_batch(b_idx[active])
+
+    def step(self, actions: torch.Tensor, *, finalize_round: bool = True) -> None:
         """Apply one action per game in the batch.
 
         actions: (B,) int64 tensor of action indices.
+        finalize_round: When False, skip wall-tiling / next-round setup after the
+            factory-offer phase. Used for MCTS child expansion where finalizing
+            thousands of hypothetical states dominates cost.
         """
-        B = self.batch_size
-        cp = self.current_player.long()
+        self._step_offer_vectorized(actions)
 
-        for b in range(B):
-            if self.ended[b]:
-                continue
-            action = actions[b].item()
-            player = cp[b].item()
-            self._apply_action(b, player, action)
+        if finalize_round:
+            self._check_round_end_vectorized()
 
-        # Check if the round (factory offer phase) is over
-        self._check_round_end()
+    def _check_round_end_vectorized(self) -> None:
+        """Detect finished factory-offer rounds and run wall-tiling per game."""
+        factories_empty = self.factory_tiles[:, : self.num_factories].sum(dim=(1, 2)) == 0
+        center_empty = self.center_tiles.sum(dim=1) == 0
+        round_done = factories_empty & center_empty & (~self.ended)
+        if not round_done.any():
+            return
+        rows = round_done.nonzero(as_tuple=True)[0]
+        self._do_wall_tiling_batch(rows)
 
-    def _apply_action(self, b: int, player: int, action: int) -> None:
-        """Apply a single action for one game."""
-        source, color, target = A.decode_action(action)
+    def _do_wall_tiling_batch(self, rows: torch.Tensor) -> None:
+        """Vectorized wall-tiling, end-game bonuses, and next-round refill."""
+        if rows.numel() == 0:
+            return
 
-        # Determine how many tiles of this color at source
-        if source < self.num_factories:
-            num_picked = self.factory_tiles[b, source, color].item()
-            # Move remaining tiles to center
-            for c in range(NUM_COLORS):
-                if c != color:
-                    self.center_tiles[b, c] += self.factory_tiles[b, source, c]
-            # Clear factory
-            self.factory_tiles[b, source].zero_()
-        else:
-            # Picking from center
-            num_picked = self.center_tiles[b, color].item()
-            self.center_tiles[b, color] = 0
-            # First player to pick from center gets the first-player marker
-            if self.center_first[b]:
-                self.center_first[b] = False
-                self.floor_first[b, player] = True
-                self._place_on_floor(b, player, 1, A.FLOOR_MARKER)
+        floor_penalties = _cumulative_floor_penalties(self.device)
 
-        # Place tiles
-        if target == A.FLOOR_TARGET:
-            # All tiles go to floor
-            placed_floor = self._place_on_floor(b, player, num_picked, color)
-            overflow = num_picked - placed_floor
-            # Overflow goes to box lid
-            self.box_lid[b, color] += overflow
-        else:
-            # Target is a pattern line
-            row = target
-            line_capacity = row + 1
-            current_count = self.pattern_count[b, player, row].item()
-            space_available = line_capacity - current_count
+        for player in range(self.num_players):
+            for row in range(5):
+                count = self.pattern_count[rows, player, row].to(torch.int16)
+                complete = count >= row + 1
+                if not complete.any():
+                    continue
 
-            placed_in_line = min(num_picked, space_available)
-            excess = num_picked - placed_in_line
+                r = rows[complete]
+                color = self.pattern_color[r, player, row].to(torch.long)
+                col = (color + row) % 5
 
-            self.pattern_count[b, player, row] += placed_in_line
-            self.pattern_color[b, player, row] = color
+                self.wall[r, player, row, col] = True
+                wall = self.wall[r, player]
+                points = _score_completed_placements_batch(wall, row, col)
+                self.scores[r, player] += points
+                returned = (count[complete] - 1).to(torch.int8)
+                self._add_to_box_lid(r, color, returned)
+                self.pattern_count.index_put_(
+                    (r, torch.full_like(r, player), torch.full_like(r, row)),
+                    torch.zeros(r.shape[0], dtype=torch.int8, device=self.device),
+                )
+                self.pattern_color.index_put_(
+                    (r, torch.full_like(r, player), torch.full_like(r, row)),
+                    torch.full((r.shape[0],), -1, dtype=torch.int8, device=self.device),
+                )
 
-            # Excess goes to floor
-            if excess > 0:
-                placed_floor = self._place_on_floor(b, player, excess, color)
-                overflow = excess - placed_floor
-                self.box_lid[b, color] += overflow
+            floor_n = self.floor_count[rows, player].to(torch.long).clamp(0, FLOOR_SIZE)
+            updated_scores = self.scores[rows, player] + floor_penalties[floor_n]
+            self.scores[rows, player] = updated_scores.clamp_min(0).to(self.scores.dtype)
+            self.box_lid[rows] += self.floor_tiles[rows, player]
+            player_idx = torch.full_like(rows, fill_value=player, dtype=torch.long)
+            self.floor_tiles.index_put_(
+                (rows, player_idx),
+                torch.zeros((rows.numel(), NUM_COLORS), dtype=torch.int8, device=self.device),
+            )
+            self.floor_slots.index_put_(
+                (rows, player_idx),
+                torch.full((rows.numel(), FLOOR_SIZE), -1, dtype=torch.int8, device=self.device),
+            )
+            self.floor_count.index_put_(
+                (rows, player_idx),
+                torch.zeros((rows.numel(),), dtype=torch.int8, device=self.device),
+            )
 
-        # Advance to next player
-        self._advance_player(b)
+            has_first = self.floor_first[rows, player]
+            if has_first.any():
+                self.first_player[rows[has_first]] = player
+            self.floor_first.index_put_(
+                (rows, player_idx),
+                torch.zeros((rows.numel(),), dtype=torch.bool, device=self.device),
+            )
 
-    def _advance_player(self, b: int) -> None:
-        """Move to the next active player."""
-        cp = self.current_player[b].item()
-        for i in range(1, self.num_players + 1):
-            next_p = (cp + i) % self.num_players
-            if self.active_mask[b, next_p]:
-                self.current_player[b] = next_p
+        wall_rows_complete = self.wall[rows, : self.num_players].all(dim=-1)
+        game_over = wall_rows_complete.any(dim=(1, 2))
+        if game_over.any():
+            self._end_game_batch(rows[game_over])
+
+        next_round = rows[~game_over]
+        if next_round.numel() > 0:
+            self._prepare_next_round_batch(next_round)
+
+    def _end_game_batch(self, rows: torch.Tensor) -> None:
+        """Apply end-game bonuses for a subset of batch rows."""
+        if rows.numel() == 0:
+            return
+
+        nP = self.num_players
+        wall = self.wall[rows, :nP]
+        bonus = wall.all(dim=-1).sum(dim=-1).to(torch.int16) * 2
+        bonus += wall.all(dim=-2).sum(dim=-1).to(torch.int16) * 7
+
+        row_idx = torch.arange(5, device=self.device)
+        for color in range(NUM_COLORS):
+            col_idx = (row_idx + color) % 5
+            bonus += wall[:, :, row_idx, col_idx].all(dim=-1).to(torch.int16) * 10
+
+        self.scores[rows, :nP] += bonus
+        self.ended[rows] = True
+
+    def _prepare_next_round_batch(self, rows: torch.Tensor) -> None:
+        """Refill factories for round-done games without per-game Python loops."""
+        rows = rows.to(device=self.device, dtype=torch.long)
+        if rows.numel() == 0:
+            return
+        self.center_first[rows] = True
+        self.current_player[rows] = self.first_player[rows]
+        self._fill_factories_batch(rows)
+
+    def _fill_factories_batch(self, rows: torch.Tensor) -> None:
+        """Fill factory displays for selected games, refilling each bag from its lid as needed."""
+        rows = rows.to(device=self.device, dtype=torch.long)
+        if rows.numel() == 0:
+            return
+
+        one = torch.ones((rows.numel(),), dtype=torch.int8, device=self.device)
+        minus_one = torch.full((rows.numel(),), -1, dtype=torch.int8, device=self.device)
+        for slot in range(self.num_factories * T.TILES_PER_FACTORY):
+            bag_total = self.bag[rows].sum(dim=1, dtype=torch.int16)
+            empty_bag = bag_total == 0
+            if empty_bag.any():
+                refill_rows = rows[empty_bag]
+                self.bag[refill_rows] = self.box_lid[refill_rows]
+                self.box_lid[refill_rows] = 0
+                bag_total = self.bag[rows].sum(dim=1, dtype=torch.int16)
+
+            can_draw = bag_total > 0
+            if not can_draw.any():
                 return
 
-    def _check_round_end(self) -> None:
-        """Check if factory offer phase is complete (all sources empty)."""
-        B = self.batch_size
-        for b in range(B):
-            if self.ended[b]:
-                continue
-            factories_empty = (self.factory_tiles[b, :self.num_factories].sum().item() == 0)
-            center_empty = (self.center_tiles[b].sum().item() == 0)
-            if factories_empty and center_empty:
-                self._do_wall_tiling(b)
+            draw_rows = rows[can_draw]
+            totals = bag_total[can_draw]
+            draws = torch.floor(
+                torch.rand(
+                    (draw_rows.numel(),),
+                    device=self.device,
+                    generator=self._rng,
+                )
+                * totals.to(torch.float32)
+            ).to(torch.int16)
+            cumulative = self.bag[draw_rows].to(torch.int16).cumsum(dim=1)
+            colors = (cumulative <= draws.unsqueeze(1)).sum(dim=1).to(torch.long)
 
-    def _do_wall_tiling(self, b: int) -> None:
-        """Execute wall-tiling phase for one game: score tiles, apply penalties,
-        check game end, and prepare next round."""
-        game_over = False
-
-        for player in range(self.num_players):
-            # Move completed pattern lines to wall
-            for row in range(5):
-                count = self.pattern_count[b, player, row].item()
-                capacity = row + 1
-                if count < capacity:
-                    continue
-                # Line is complete - move tile to wall
-                color = self.pattern_color[b, player, row].item()
-                col = A.wall_column_for_color(row, color)
-                self.wall[b, player, row, col] = True
-
-                # Score this placement
-                points = self._score_placement(b, player, row, col)
-                self.scores[b, player] += points
-
-                # Clear pattern line; return excess tiles to box lid
-                tiles_to_return = count - 1  # one tile went to wall
-                self.box_lid[b, color] += tiles_to_return
-                self.pattern_count[b, player, row] = 0
-                self.pattern_color[b, player, row] = -1
-
-            # Apply floor penalties
-            floor_n = self.floor_count[b, player].item()
-            penalty = 0
-            for i in range(min(floor_n, FLOOR_SIZE)):
-                penalty += FLOOR_PENALTIES[i]
-            self.scores[b, player] = max(0, self.scores[b, player].item() + penalty)
-
-            # Return floor tiles to box lid
-            for c in range(NUM_COLORS):
-                self.box_lid[b, c] += self.floor_tiles[b, player, c]
-            self.floor_tiles[b, player].zero_()
-            self.floor_slots[b, player].fill_(-1)
-            self.floor_count[b, player] = 0
-
-            # Determine first player for next round
-            if self.floor_first[b, player]:
-                self.first_player[b] = player
-            self.floor_first[b, player] = False
-
-            # Check if this player completed a horizontal row
-            for row in range(5):
-                if self.wall[b, player, row].all():
-                    game_over = True
-
-        if game_over:
-            self._end_game(b)
-        else:
-            self._prepare_next_round(b)
-
-    def _score_placement(self, b: int, player: int, row: int, col: int) -> int:
-        """Score a single tile placement on the wall."""
-        wall = self.wall[b, player]
-        h_count = 1  # the placed tile itself
-        v_count = 1
-
-        # Count horizontal neighbors
-        for c in range(col - 1, -1, -1):
-            if wall[row, c]:
-                h_count += 1
-            else:
-                break
-        for c in range(col + 1, 5):
-            if wall[row, c]:
-                h_count += 1
-            else:
-                break
-
-        # Count vertical neighbors
-        for r in range(row - 1, -1, -1):
-            if wall[r, col]:
-                v_count += 1
-            else:
-                break
-        for r in range(row + 1, 5):
-            if wall[r, col]:
-                v_count += 1
-            else:
-                break
-
-        if h_count == 1 and v_count == 1:
-            return 1  # isolated tile
-        score = 0
-        if h_count > 1:
-            score += h_count
-        if v_count > 1:
-            score += v_count
-        return score
-
-    def _end_game(self, b: int) -> None:
-        """Apply end-game bonuses and mark game as ended."""
-        for player in range(self.num_players):
-            bonus = 0
-            wall = self.wall[b, player]
-
-            # +2 for each complete horizontal row
-            for row in range(5):
-                if wall[row].all():
-                    bonus += 2
-
-            # +7 for each complete vertical column
-            for col in range(5):
-                if wall[:, col].all():
-                    bonus += 7
-
-            # +10 for each color with all 5 tiles placed
-            for color in range(NUM_COLORS):
-                all_placed = True
-                for row in range(5):
-                    col = A.wall_column_for_color(row, color)
-                    if not wall[row, col]:
-                        all_placed = False
-                        break
-                if all_placed:
-                    bonus += 10
-
-            self.scores[b, player] += bonus
-
-        self.ended[b] = True
-
-    def _prepare_next_round(self, b: int) -> None:
-        """Set up the next round: refill factories, reset center."""
-        self.center_first[b] = True
-        self.current_player[b] = self.first_player[b]
-
-        # Fill factories
-        for f in range(self.num_factories):
-            for _ in range(T.TILES_PER_FACTORY):
-                total = self.bag[b].sum().item()
-                if total == 0:
-                    # Refill from box lid
-                    self.bag[b] = self.box_lid[b].clone()
-                    self.box_lid[b].zero_()
-                    total = self.bag[b].sum().item()
-                    if total == 0:
-                        return  # no tiles left anywhere
-                color = self._sample_bag_color(self.bag[b])
-                self.bag[b, color] -= 1
-                self.factory_tiles[b, f, color] += 1
+            self.bag.index_put_(
+                (draw_rows, colors),
+                minus_one[: draw_rows.numel()],
+                accumulate=True,
+            )
+            factories = torch.full(
+                (draw_rows.numel(),),
+                slot // T.TILES_PER_FACTORY,
+                dtype=torch.long,
+                device=self.device,
+            )
+            self.factory_tiles.index_put_(
+                (draw_rows, factories, colors),
+                one[: draw_rows.numel()],
+                accumulate=True,
+            )
 
     def get_winners(self) -> torch.Tensor:
-        """Returns (B,) tensor with the winning player index for ended games, -1 otherwise."""
+        """Return (B,) winner seat per game.
+
+        ``NO_WINNER`` (-1): game not finished (includes turn-cap stalls).
+        ``SHARED_VICTORY`` (-2): ended with official shared win (tied score and rows).
+        Otherwise: sole winner seat index.
+        """
         B = self.batch_size
-        winners = torch.full((B,), -1, dtype=torch.int8, device=self.device)
-        for b in range(B):
-            if self.ended[b]:
-                # Highest score wins; tiebreak = most complete horizontal rows
-                best_score = -1
-                best_rows = -1
-                best_player = 0
-                for p in range(self.num_players):
-                    score = self.scores[b, p].item()
-                    rows = sum(1 for r in range(5) if self.wall[b, p, r].all())
-                    if score > best_score or (score == best_score and rows > best_rows):
-                        best_score = score
-                        best_rows = rows
-                        best_player = p
-                winners[b] = best_player
+        P = self.num_players
+        winners = torch.full((B,), NO_WINNER, dtype=torch.int8, device=self.device)
+        if not self.ended.any():
+            return winners
+
+        scores = self.scores[:, :P].to(torch.int32)
+        rows_complete = self.wall[:, :P].all(dim=-1).sum(dim=-1).to(torch.int32)
+
+        max_score = scores.max(dim=-1, keepdim=True).values
+        score_best = scores == max_score
+
+        rows_for_best = rows_complete.masked_fill(~score_best, -1)
+        max_rows = rows_for_best.max(dim=-1, keepdim=True).values
+        at_best = score_best & (rows_complete == max_rows)
+
+        num_at_best = at_best.sum(dim=-1)
+        first_best = at_best.to(torch.int64).argmax(dim=-1).to(torch.int8)
+
+        single = self.ended & (num_at_best == 1)
+        shared = self.ended & (num_at_best > 1)
+        winners = torch.where(single, first_best, winners)
+        winners = torch.where(
+            shared,
+            torch.full((B,), SHARED_VICTORY, dtype=torch.int8, device=self.device),
+            winners,
+        )
         return winners

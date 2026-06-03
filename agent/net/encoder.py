@@ -25,12 +25,16 @@ MAX_FACTORIES = A.MAX_FACTORIES
 FLOOR_SIZE = A.FLOOR_SIZE
 
 # Per-seat features
-D_PATTERN = 5 * 2  # for each pattern line: count_normalized, has_color
+D_PATTERN_LINE = 1 + NUM_COLORS  # count_normalized + committed color one-hot
+D_PATTERN = 5 * D_PATTERN_LINE
 D_WALL_FLAT = 25  # 5x5 wall grid flattened
-D_FLOOR = 1  # normalized floor count
+D_FLOOR_COUNT = 1  # normalized floor count
+D_FLOOR_TILES = NUM_COLORS  # floor tile color counts
+D_FLOOR_FIRST = 1  # whether this floor has the first-player marker
+D_FLOOR = D_FLOOR_COUNT + D_FLOOR_TILES + D_FLOOR_FIRST
 D_SCORE = 1
 D_IS_CURRENT = 1
-D_SEAT_FEAT = D_PATTERN + D_WALL_FLAT + D_FLOOR + D_SCORE + D_IS_CURRENT  # 38
+D_SEAT_FEAT = D_PATTERN + D_WALL_FLAT + D_FLOOR + D_SCORE + D_IS_CURRENT  # 64
 
 # Global features
 D_PC_OH = 3  # one-hot for 2p/3p/4p
@@ -43,8 +47,8 @@ D_GLOBAL = (
     + D_PC_OH  # 3
     + D_BAG  # 5
     + D_BOX_LID  # 5
-    + MAX_PLAYERS * D_SEAT_FEAT  # 4 * 38 = 152
-)  # total: 171
+    + MAX_PLAYERS * D_SEAT_FEAT  # 4 * 64 = 256
+)  # total: 275
 
 # Per-source features (factory displays + center)
 D_SOURCE = NUM_COLORS  # tile counts at each source (5)
@@ -66,7 +70,7 @@ def encode_state(
 
     source_feat = torch.zeros((B, NUM_SOURCES, D_SOURCE), dtype=torch.float32, device=device)
     source_feat[:, :MAX_FACTORIES, :] = engine.factory_tiles.float()
-    source_feat[:, MAX_FACTORIES, :] = engine.center_tiles.float()
+    source_feat[:, engine.num_factories, :] = engine.center_tiles.float()
 
     center = engine.center_tiles.float()
     center_first = engine.center_first.float().unsqueeze(-1)
@@ -84,8 +88,15 @@ def encode_state(
         pattern_color = engine.pattern_color[batch_idx, player_idx]  # (B, 5)
 
         fill_ratio = pattern_count.float() / capacities.unsqueeze(0)
-        has_color = (pattern_color >= 0).float()
-        pattern_feat = torch.stack([fill_ratio, has_color], dim=-1).reshape(B, D_PATTERN)
+        has_color = pattern_color >= 0
+        color_oh = torch.nn.functional.one_hot(
+            pattern_color.clamp_min(0).long(),
+            num_classes=NUM_COLORS,
+        ).float()
+        color_oh = color_oh * has_color.unsqueeze(-1).float()
+        pattern_feat = torch.cat([fill_ratio.unsqueeze(-1), color_oh], dim=-1).reshape(
+            B, D_PATTERN
+        )
         if not active:
             pattern_feat = torch.zeros_like(pattern_feat)
 
@@ -93,7 +104,15 @@ def encode_state(
         if not active:
             wall_feat = torch.zeros_like(wall_feat)
 
-        floor_feat = (engine.floor_count[batch_idx, player_idx].float() / FLOOR_SIZE).unsqueeze(-1)
+        floor_count_feat = (
+            engine.floor_count[batch_idx, player_idx].float() / FLOOR_SIZE
+        ).unsqueeze(-1)
+        floor_tiles_feat = engine.floor_tiles[batch_idx, player_idx].float() / FLOOR_SIZE
+        floor_first_feat = engine.floor_first[batch_idx, player_idx].float().unsqueeze(-1)
+        floor_feat = torch.cat(
+            [floor_count_feat, floor_tiles_feat, floor_first_feat],
+            dim=-1,
+        )
         score_feat = (engine.scores[batch_idx, player_idx].float() / 100.0).unsqueeze(-1)
         if not active:
             floor_feat = torch.zeros_like(floor_feat)

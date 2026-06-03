@@ -11,6 +11,13 @@ from agent.env import actions as A
 from agent.env.batched_engine import BatchedEngine
 
 
+def _winner_for_api(engine: BatchedEngine, batch_idx: int) -> Optional[int]:
+    if not engine.ended[batch_idx]:
+        return None
+    w = int(engine.get_winners()[batch_idx].item())
+    return w if w >= 0 else None
+
+
 @dataclass
 class GameSession:
     game_id: str
@@ -78,5 +85,5 @@ class GameSession:
             "players": players,
             "legal_actions": legal_actions_named,
             "ended": engine.ended[b].item(),
-            "winner": engine.get_winners()[b].item() if engine.ended[b] else None,
+            "winner": _winner_for_api(engine, b),
         }
