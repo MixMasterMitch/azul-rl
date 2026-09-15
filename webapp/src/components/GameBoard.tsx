@@ -13,7 +13,7 @@ interface Props {
 }
 
 export function GameBoard({ state, onAction, loading }: Props) {
-  const isMyTurn = state.current_player === state.human_seat && !state.ended;
+  const isMyTurn = state.current_player === state.human_seat && state.status === 'active';
   const centerSource = state.center_source;
   const [selection, setSelection] = useState<TileSelection | null>(null);
 
@@ -50,7 +50,7 @@ export function GameBoard({ state, onAction, loading }: Props) {
   }, [selection, validTargets, state.legal_actions, onAction]);
 
   return (
-    <div>
+    <div data-game-status={state.status}>
       {/* Game status */}
       <div style={{
         textAlign: 'center',
@@ -59,9 +59,13 @@ export function GameBoard({ state, onAction, loading }: Props) {
         background: state.ended ? '#2e7d32' : '#16213e',
         borderRadius: '8px',
       }}>
-        {state.ended ? (
+        {state.status === 'abandoned' ? (
+          <span>Game abandoned — no rating change</span>
+        ) : state.ended ? (
           <span style={{ fontSize: '1.2rem' }}>
-            Game Over! {state.winner === state.human_seat ? '🎉 You win!' : `Player ${state.winner} wins!`}
+            {state.winner_seats.length > 1
+              ? `Shared victory: ${state.winner_seats.map(seat => seat === state.human_seat ? 'you' : `Player ${seat + 1}`).join(' and ')}`
+              : state.winner_seats.includes(state.human_seat) ? '🎉 You win!' : `Player ${(state.winner_seats[0] ?? 0) + 1} wins!`}
           </span>
         ) : isMyTurn ? (
           <span style={{ color: '#81c784' }}>
@@ -70,7 +74,7 @@ export function GameBoard({ state, onAction, loading }: Props) {
               : 'Your turn — click a tile color in a factory or the center'}
           </span>
         ) : (
-          <span style={{ color: '#ffb74d' }}>Waiting for Player {state.current_player}...</span>
+          <span style={{ color: '#ffb74d' }}>Player {state.current_player + 1} is thinking…</span>
         )}
       </div>
 
@@ -126,7 +130,7 @@ export function GameBoard({ state, onAction, loading }: Props) {
       </div>
 
       {/* Player boards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 350px), 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
         {state.players.map((player, i) => (
           <PlayerBoard
             key={i}

@@ -77,6 +77,7 @@ export function Tile({
         type="button"
         onClick={onClick}
         title={title ?? COLOR_NAMES[color]}
+        aria-label={title ?? COLOR_NAMES[color]}
         style={{ ...sharedStyle, cursor: 'pointer' }}
       >
         {content}

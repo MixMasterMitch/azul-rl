@@ -12,11 +12,15 @@ Uses a "Gumbel root + 1-ply learned value" scheme:
 from __future__ import annotations
 
 from typing import Tuple
+import time
 
 import torch
 
 from ..env import actions as A
 from ..env import batched_engine as BE
+from ..env.engine import GameEngine
+from ..env.outcomes import final_values
+from .config import SearchConfig
 from ..net import encoder as ENC
 from ..net import model as M
 from ..train.instrumentation import PerfCounters, maybe_time
@@ -24,148 +28,14 @@ from ..train.instrumentation import PerfCounters, maybe_time
 NUM_ACTIONS = A.NUM_ACTIONS
 
 
-def _sample_gumbel(shape, device):
-    u = torch.rand(shape, device=device).clamp_min(1e-9)
+def _sample_gumbel(shape: tuple[int, ...], device: torch.device, generator: torch.Generator | None = None) -> torch.Tensor:
+    u = torch.rand(shape, device=device, generator=generator).clamp_min(1e-9)
     return -torch.log(-torch.log(u))
 
 
-def _score_completed_placements(
-    wall: torch.Tensor,
-    row: int,
-    col: torch.Tensor,
-) -> torch.Tensor:
-    """Vectorized Azul placement score for one row with variable columns."""
-    n = wall.shape[0]
-    batch_idx = torch.arange(n, device=wall.device)
-
-    h_count = torch.ones((n,), dtype=torch.int16, device=wall.device)
-    active = torch.ones((n,), dtype=torch.bool, device=wall.device)
-    for step in range(1, 5):
-        c = col - step
-        active = active & (c >= 0)
-        hit = active & wall[batch_idx, row, c.clamp(0, 4)]
-        h_count += hit.to(torch.int16)
-        active = hit
-
-    active = torch.ones((n,), dtype=torch.bool, device=wall.device)
-    for step in range(1, 5):
-        c = col + step
-        active = active & (c < 5)
-        hit = active & wall[batch_idx, row, c.clamp(0, 4)]
-        h_count += hit.to(torch.int16)
-        active = hit
-
-    v_count = torch.ones((n,), dtype=torch.int16, device=wall.device)
-    active = torch.ones((n,), dtype=torch.bool, device=wall.device)
-    for step in range(1, 5):
-        r = row - step
-        if r < 0:
-            break
-        hit = active & wall[batch_idx, r, col]
-        v_count += hit.to(torch.int16)
-        active = hit
-
-    active = torch.ones((n,), dtype=torch.bool, device=wall.device)
-    for step in range(1, 5):
-        r = row + step
-        if r >= 5:
-            break
-        hit = active & wall[batch_idx, r, col]
-        v_count += hit.to(torch.int16)
-        active = hit
-
-    connected = (h_count > 1) | (v_count > 1)
-    linked = torch.where(h_count > 1, h_count, torch.zeros_like(h_count)) + torch.where(
-        v_count > 1, v_count, torch.zeros_like(v_count)
-    )
-    return torch.where(connected, linked, torch.ones_like(linked))
-
-
-def _apply_end_bonuses_for_rows(engine: BE.BatchedEngine, rows: torch.Tensor) -> None:
-    """Apply final bonuses for already-ended child rows."""
-    if rows.numel() == 0:
-        return
-
-    nP = engine.num_players
-    wall = engine.wall[rows, :nP]
-    bonus = wall.all(dim=-1).sum(dim=-1).to(torch.int16) * 2
-    bonus += wall.all(dim=-2).sum(dim=-1).to(torch.int16) * 7
-
-    row_idx = torch.arange(5, device=engine.device)
-    for color in range(A.NUM_COLORS):
-        col_idx = (row_idx + color) % 5
-        bonus += wall[:, :, row_idx, col_idx].all(dim=-1).to(torch.int16) * 10
-
-    engine.scores[rows, :nP] += bonus
-    engine.ended[rows] = True
-
-
 def _finalize_round_for_child_values(engine: BE.BatchedEngine) -> None:
-    """Score round-ending child states and advance them to the next playable phase.
-
-    Child values should be encoded from the same phase distribution as real
-    self-play states. A round-ending move therefore needs wall-tiling and the
-    next factory refill unless it ends the game.
-    """
-    factories_empty = engine.factory_tiles[:, : engine.num_factories].sum(dim=(1, 2)) == 0
-    center_empty = engine.center_tiles.sum(dim=1) == 0
-    round_done = factories_empty & center_empty & (~engine.ended)
-    rows = round_done.nonzero(as_tuple=True)[0]
-    if rows.numel() == 0:
-        return
-
-    floor_penalties = torch.tensor(
-        [0, -1, -2, -4, -6, -8, -11, -14],
-        dtype=torch.int16,
-        device=engine.device,
-    )
-
-    for player in range(engine.num_players):
-        for row in range(5):
-            count = engine.pattern_count[rows, player, row].to(torch.int16)
-            complete = count >= row + 1
-            if not complete.any():
-                continue
-
-            r = rows[complete]
-            color = engine.pattern_color[r, player, row].to(torch.long)
-            col = (color + row) % 5
-            engine.wall[r, player, row, col] = True
-
-            wall = engine.wall[r, player]
-            points = _score_completed_placements(wall, row, col)
-            engine.scores[r, player] += points
-            returned = (count[complete] - 1).to(torch.int8)
-            engine._add_to_box_lid(r, color, returned)
-            engine.pattern_count.index_put_(
-                (r, torch.full_like(r, player), torch.full_like(r, row)),
-                torch.zeros(r.shape[0], dtype=torch.int8, device=engine.device),
-            )
-            engine.pattern_color.index_put_(
-                (r, torch.full_like(r, player), torch.full_like(r, row)),
-                torch.full((r.shape[0],), -1, dtype=torch.int8, device=engine.device),
-            )
-
-        floor_n = engine.floor_count[rows, player].to(torch.long).clamp(0, A.FLOOR_SIZE)
-        updated_scores = engine.scores[rows, player] + floor_penalties[floor_n]
-        engine.scores[rows, player] = updated_scores.clamp_min(0).to(engine.scores.dtype)
-        engine.box_lid[rows] += engine.floor_tiles[rows, player]
-        engine.floor_tiles[rows, player].zero_()
-        engine.floor_slots[rows, player].fill_(-1)
-        engine.floor_count[rows, player] = 0
-
-        has_first = engine.floor_first[rows, player]
-        if has_first.any():
-            engine.first_player[rows[has_first]] = player
-        engine.floor_first[rows, player] = False
-
-    wall_rows_complete = engine.wall[rows, : engine.num_players].all(dim=-1)
-    game_over = wall_rows_complete.any(dim=(1, 2))
-    _apply_end_bonuses_for_rows(engine, rows[game_over])
-
-    next_round = rows[~game_over]
-    if next_round.numel() > 0:
-        engine._prepare_next_round_batch(next_round)
+    """Use exactly the same round transition as a real move."""
+    engine.finalize_round()
 
 
 def _root_value_index(
@@ -190,10 +60,11 @@ def _apply_dirichlet_noise(
     legal_mask: torch.Tensor,
     dirichlet_alpha: float,
     dirichlet_mix: float,
+    generator: torch.Generator | None = None,
 ) -> torch.Tensor:
     """Vectorized Dirichlet exploration noise over legal actions."""
     legal_f = legal_mask.to(prior_logits.dtype)
-    gamma = torch._standard_gamma(torch.full_like(legal_f, dirichlet_alpha))
+    gamma = torch._standard_gamma(torch.full_like(legal_f, dirichlet_alpha), generator=generator)
     gamma = gamma * legal_f
     gamma = gamma / gamma.sum(dim=-1, keepdim=True).clamp_min(1e-9)
     prior_probs = torch.softmax(
@@ -210,6 +81,8 @@ def _evaluate_root_children_batched(
     legal: torch.Tensor,
     num_players: int,
     perf: PerfCounters | None = None,
+    reward_mode: str = "binary",
+    generator: torch.Generator | None = None,
 ) -> torch.Tensor:
     """Expand all root children in one B×K batched engine/value pass."""
     B = engine.batch_size
@@ -221,23 +94,46 @@ def _evaluate_root_children_batched(
     with maybe_time(perf, "mcts_child_safe_actions"):
         safe_topk = _safe_root_actions(topk_idx, legal)
         parent_cp = engine.current_player.to(torch.long).repeat_interleave(K)
-    with maybe_time(perf, "mcts_child_repeat"):
-        child_engine = engine.repeat_interleave(K)
-    with maybe_time(perf, "mcts_child_step"):
-        child_engine.step(safe_topk.reshape(-1), finalize_round=False)
-    with maybe_time(perf, "mcts_child_finalize"):
-        _finalize_round_for_child_values(child_engine)
+    # Search chance samples never inherit the live game's future draws.
+    seed = int(torch.randint(2**31, (), device=engine.device, generator=generator).item())
+    if isinstance(engine, GameEngine) and perf is None:
+        child_engine = engine.expand(safe_topk, seed=seed)
+    else:
+        with maybe_time(perf, "mcts_child_repeat"):
+            child_engine = engine.repeat_interleave(K)
+            if isinstance(child_engine, GameEngine):
+                child_engine.reseed(seed)
+            else:
+                child_engine._game_rngs = None
+                child_engine._rng.manual_seed(seed)
+        with maybe_time(perf, "mcts_child_step"):
+            child_engine.step(safe_topk.reshape(-1), finalize_round=False)
+        if perf is not None:
+            refill = (child_engine.round_done() if isinstance(child_engine, GameEngine) else
+                      ((child_engine.factory_tiles.sum((1, 2)) + child_engine.center_tiles.sum(1)) == 0) & ~child_engine.ended)
+            perf.add_count("search_round_end_children", int(refill.sum()))
+        with maybe_time(perf, "mcts_child_finalize"):
+            _finalize_round_for_child_values(child_engine)
 
-    with maybe_time(perf, "mcts_child_encode"):
-        g_child, s_child = ENC.encode_state(child_engine)
-    with maybe_time(perf, "mcts_child_value_net"):
-        with torch.no_grad():
-            child_value = net.forward_value(g_child, s_child, num_players)
-
+    terminal = child_engine.ended
+    child_value = torch.zeros((B * K, BE.MAX_PLAYERS), device=engine.device)
+    live_idx = (~terminal).nonzero(as_tuple=True)[0]
+    if live_idx.numel():
+        live = child_engine.index_select(live_idx)
+        with maybe_time(perf, "mcts_child_encode"):
+            g_child, s_child = ENC.encode_state(live)
+        with maybe_time(perf, "mcts_child_value_net"), torch.no_grad():
+            child_value[live_idx] = net.forward_value(g_child, s_child, num_players)
     with maybe_time(perf, "mcts_child_value_index"):
         child_cp = child_engine.current_player.to(torch.long)
         val_idx = _root_value_index(parent_cp, child_cp, num_players)
-        q_values = child_value.gather(1, val_idx.unsqueeze(-1)).squeeze(-1).reshape(B, K)
+        q_flat = child_value.gather(1, val_idx.unsqueeze(-1)).squeeze(-1)
+        if terminal.any():
+            exact = final_values(child_engine, num_players, reward_mode)
+            q_flat[terminal] = exact.gather(1, parent_cp[:, None]).squeeze(1)[terminal]
+        q_values = q_flat.reshape(B, K)
+    if perf is not None:
+        perf.add_count("search_terminal_children", int(terminal.sum()))
     return q_values
 
 
@@ -252,6 +148,8 @@ def gumbel_root_act(
     q_scale: float = 10.0,
     precomputed: tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None = None,
     perf: PerfCounters | None = None,
+    reward_mode: str = "binary",
+    search_config: SearchConfig | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Select actions for each game in the batch.
 
@@ -262,6 +160,23 @@ def gumbel_root_act(
     When ``precomputed`` is provided as ``(global_feat, source_feat, legal_mask)``,
     skips re-encoding the root state (used by self-play).
     """
+    started = time.monotonic()
+    if search_config is not None:
+        if search_config.backend == "gumbel_tree":
+            from .tree import gumbel_tree_act
+            return gumbel_tree_act(engine, net, search_config, perf=perf)
+        num_sims = search_config.num_simulations
+        temperature = search_config.temperature
+        root_noise_scale = search_config.root_noise_scale
+        dirichlet_alpha = search_config.dirichlet_alpha
+        dirichlet_mix = search_config.dirichlet_mix
+        q_scale = search_config.q_scale
+        reward_mode = search_config.reward_mode
+    if num_sims < 1:
+        raise ValueError("num_sims must be positive")
+    generator = None
+    if search_config is not None and search_config.seed is not None:
+        generator = torch.Generator(device=engine.device).manual_seed(search_config.seed)
     B = engine.batch_size
     device = engine.device
     nP = engine.num_players
@@ -283,11 +198,11 @@ def gumbel_root_act(
 
     if dirichlet_alpha > 0 and dirichlet_mix > 0:
         with maybe_time(perf, "mcts_dirichlet"):
-            prior = _apply_dirichlet_noise(prior, legal_mask, dirichlet_alpha, dirichlet_mix)
+            prior = _apply_dirichlet_noise(prior, legal_mask, dirichlet_alpha, dirichlet_mix, generator)
 
     k = min(num_sims, NUM_ACTIONS)
     with maybe_time(perf, "mcts_gumbel_topk"):
-        gumbel = _sample_gumbel((B, NUM_ACTIONS), device) * root_noise_scale
+        gumbel = _sample_gumbel((B, NUM_ACTIONS), device, generator) * root_noise_scale
         perturbed = (prior + gumbel).masked_fill(~legal_mask, neg_inf)
 
         has_legal = legal_mask.any(dim=-1)
@@ -298,7 +213,26 @@ def gumbel_root_act(
 
         top_vals, top_idx = perturbed.topk(k, dim=-1)
 
-    q_values = _evaluate_root_children_batched(engine, net, top_idx, legal_mask, nP, perf=perf)
+    if search_config is not None and search_config.move_deadline_s is not None:
+        deadline = started + search_config.move_deadline_s
+        q_values = torch.full_like(top_vals, float('-inf'))
+        completed, largest_batch_s = 0, .005
+        for start in range(0, k, 64):
+            if time.monotonic() + largest_batch_s >= deadline:
+                break
+            before = time.monotonic()
+            stop = min(start + 64, k)
+            q_values[:, start:stop] = _evaluate_root_children_batched(engine, net, top_idx[:, start:stop], legal_mask,
+                nP, perf=perf, reward_mode=reward_mode, generator=generator)
+            completed = stop
+            largest_batch_s = max(largest_batch_s, time.monotonic() - before)
+        if perf is not None:
+            perf.add_count('one_ply_candidates', completed)
+        if completed == 0:
+            probs = torch.softmax(prior_logits, dim=1).masked_fill(~legal_mask, 0)
+            return prior_logits.argmax(1), probs
+    else:
+        q_values = _evaluate_root_children_batched(engine, net, top_idx, legal_mask, nP, perf=perf, reward_mode=reward_mode, generator=generator)
 
     with maybe_time(perf, "mcts_select_action"):
         combined = top_vals + q_scale * q_values
@@ -311,12 +245,13 @@ def gumbel_root_act(
 
     with maybe_time(perf, "mcts_improved_policy"):
         improved = torch.full((B, NUM_ACTIONS), neg_inf, dtype=torch.float32, device=device)
-        for ki in range(k):
-            slot_logits = prior.gather(1, top_idx[:, ki : ki + 1]) + q_scale * q_values[:, ki : ki + 1]
-            improved.scatter_(1, top_idx[:, ki : ki + 1], slot_logits)
+        improved.scatter_(1, top_idx, prior.gather(1, top_idx) + q_scale * q_values)
 
         improved = improved.masked_fill(~legal_mask, neg_inf)
         improved = torch.softmax(improved, dim=-1)
         improved = torch.where(has_legal.unsqueeze(-1), improved, torch.zeros_like(improved))
 
+    if perf is not None:
+        perf.add_count("search_positions", int(has_legal.sum()))
+        perf.add_count("search_policy_disagreements", int(((actions != prior_logits.argmax(1)) & has_legal).sum()))
     return actions, improved

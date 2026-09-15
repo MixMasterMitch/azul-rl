@@ -22,6 +22,11 @@ class ReplayBuffer:
         self.device = torch.device(device)
         self.size = 0
         self.pos = 0
+        self.total_added = 0
+        self.total_sampled = 0
+        self.iteration = 0
+        self.last_sample_age = 0.0
+        self.inserted_at = torch.zeros(capacity, dtype=torch.int64, device=self.device)
 
         self.global_feat = torch.zeros((capacity, d_global), dtype=torch.float32, device=self.device)
         self.source_feat = torch.zeros((capacity, n_sources, d_source), dtype=torch.float32, device=self.device)
@@ -42,6 +47,15 @@ class ReplayBuffer:
         if n == 0:
             return
 
+        self.total_added += n
+        if n > self.capacity:
+            offset = n - self.capacity
+            self.pos = (self.pos + offset) % self.capacity
+            global_feat, source_feat, legal_mask, policy_target, value_target = (
+                t[-self.capacity:] for t in (global_feat, source_feat, legal_mask, policy_target, value_target))
+            n = self.capacity
+        indices = (torch.arange(n, device=self.device) + self.pos) % self.capacity
+        self.inserted_at[indices] = self.iteration
         end = self.pos + n
         if end <= self.capacity:
             self.global_feat[self.pos:end] = global_feat
@@ -73,6 +87,8 @@ class ReplayBuffer:
             "capacity": self.capacity,
             "size": self.size,
             "pos": self.pos,
+            "total_added": self.total_added, "total_sampled": self.total_sampled,
+            "iteration": self.iteration, "inserted_at": self.inserted_at.cpu(),
             "global_feat": self.global_feat.cpu(),
             "source_feat": self.source_feat.cpu(),
             "legal_mask": self.legal_mask.cpu(),
@@ -85,6 +101,11 @@ class ReplayBuffer:
             raise ValueError("replay buffer capacity mismatch on resume")
         self.size = int(state["size"])
         self.pos = int(state["pos"])
+        self.total_added = int(state.get("total_added", self.size))
+        self.total_sampled = int(state.get("total_sampled", 0))
+        self.iteration = int(state.get("iteration", 0))
+        if "inserted_at" in state:
+            self.inserted_at.copy_(state["inserted_at"].to(self.device))
         dev = self.device
         self.global_feat.copy_(state["global_feat"].to(dev))
         self.source_feat.copy_(state["source_feat"].to(dev))
@@ -94,7 +115,11 @@ class ReplayBuffer:
 
     def sample(self, batch_size: int) -> tuple[torch.Tensor, ...]:
         """Sample a random minibatch."""
+        if self.size == 0:
+            raise ValueError("Cannot sample an empty replay buffer")
         indices = torch.randint(0, self.size, (batch_size,), device=self.device)
+        self.total_sampled += batch_size
+        self.last_sample_age = float((self.iteration - self.inserted_at[indices]).float().mean())
         return (
             self.global_feat[indices],
             self.source_feat[indices],

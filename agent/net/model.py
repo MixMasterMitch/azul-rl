@@ -49,11 +49,12 @@ class AzulNet(nn.Module):
         super().__init__()
         self.hidden = hidden
         self.arch = arch
+        self.model_version = 2 if arch == "source_attn" else 1
         self._compiled = False
 
         self.pc_embed = nn.Embedding(3, hidden)
 
-        if arch == "attn":
+        if arch in {"attn", "source_attn"}:
             self.g_in = nn.Sequential(
                 nn.Linear(ENC.D_GLOBAL, hidden),
                 nn.GELU(),
@@ -88,6 +89,13 @@ class AzulNet(nn.Module):
                 batch_first=True,
             )
             self.post_attn = nn.LayerNorm(hidden)
+            if arch == "source_attn":
+                # Factory identity is represented by its token, not a position ID.
+                self.source_type = nn.Embedding(2, hidden)
+                nn.init.zeros_(self.source_type.weight)
+                # A pretrained pre-norm encoder can have large residual tokens.
+                # Normalize before exposing these directly to a new policy head.
+                self.source_policy_norm = nn.LayerNorm(hidden)
         elif arch == "flat":
             flat_dim = ENC.D_GLOBAL + ENC.NUM_SOURCES * ENC.D_SOURCE
             self.flat_trunk = nn.Sequential(
@@ -103,7 +111,9 @@ class AzulNet(nn.Module):
 
         self.policy_heads = nn.ModuleDict({
             str(i): nn.Sequential(
-                nn.Linear(hidden * 2, hidden), nn.GELU(), nn.Linear(hidden, NUM_ACTIONS)
+                nn.Linear(hidden * (3 if arch == "source_attn" else 2), hidden),
+                nn.GELU(),
+                nn.Linear(hidden, 30 if arch == "source_attn" else NUM_ACTIONS),
             )
             for i in range(3)
         })
@@ -113,6 +123,10 @@ class AzulNet(nn.Module):
             )
             for i in range(3)
         })
+        if arch == "source_attn":
+            for head in self.policy_heads.values():
+                nn.init.normal_(head[-1].weight, std=0.005)
+                nn.init.zeros_(head[-1].bias)
 
         if compile_forward:
             self.enable_compile()
@@ -173,11 +187,12 @@ class AzulNet(nn.Module):
         global_feat: torch.Tensor,
         source_feat: torch.Tensor,
         num_players: int,
-    ) -> tuple[torch.Tensor, str]:
+    ) -> tuple[torch.Tensor, str, torch.Tensor | None]:
         pc_idx = num_players - 2
         pc_key = str(pc_idx)
 
-        if self.arch == "attn":
+        h_s = None
+        if self.arch in {"attn", "source_attn"}:
             h_g = self.g_in(global_feat)
             pc_emb = self.pc_embed(
                 torch.full((h_g.shape[0],), pc_idx, dtype=torch.long, device=h_g.device)
@@ -187,10 +202,21 @@ class AzulNet(nn.Module):
                 h_g = block(h_g)
 
             h_s = self.s_embed(source_feat)
-            h_s = self.source_encoder(h_s)
+            padding = None
+            if self.arch == "source_attn":
+                center = A.num_factories_for_players(num_players)
+                slots = torch.arange(ENC.NUM_SOURCES, device=source_feat.device)
+                types = (slots == center).long()
+                h_s = h_s + self.source_type(types).unsqueeze(0)
+                padding = (slots > center).unsqueeze(0).expand(h_s.shape[0], -1)
+            h_s = self.source_encoder(h_s, src_key_padding_mask=padding)
 
             q = h_g.unsqueeze(1)
-            h_attn, _ = self.attn(q, h_s, h_s)
+            # v4 has large source residuals and attention projections. Fused SDPA
+            # backward suffered catastrophic cancellation here (a captured batch
+            # had gradient norm 249,065 versus 1.30 with explicit softmax). Keep
+            # the explicit attention path used to train the original checkpoints.
+            h_attn, _ = self.attn(q, h_s, h_s, key_padding_mask=padding, need_weights=True)
             h_attn = self.post_attn(h_attn.squeeze(1))
             trunk_out = torch.cat([h_g, h_attn], dim=-1)
         else:
@@ -203,7 +229,7 @@ class AzulNet(nn.Module):
             )
             trunk_out[:, : self.hidden] = trunk_out[:, : self.hidden] + pc_emb
 
-        return trunk_out, pc_key
+        return trunk_out, pc_key, h_s
 
     def _forward_impl(
         self,
@@ -211,8 +237,13 @@ class AzulNet(nn.Module):
         source_feat: torch.Tensor,
         num_players: int,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        trunk_out, pc_key = self._trunk(global_feat, source_feat, num_players)
-        policy_logits = self.policy_heads[pc_key](trunk_out)
+        trunk_out, pc_key, sources = self._trunk(global_feat, source_feat, num_players)
+        if self.arch == "source_attn":
+            context = trunk_out.unsqueeze(1).expand(-1, ENC.NUM_SOURCES, -1)
+            sources = self.source_policy_norm(sources)
+            policy_logits = self.policy_heads[pc_key](torch.cat([sources, context], dim=-1)).flatten(1)
+        else:
+            policy_logits = self.policy_heads[pc_key](trunk_out)
         value = torch.tanh(self.value_heads[pc_key](trunk_out))
         return policy_logits, value
 
@@ -222,5 +253,5 @@ class AzulNet(nn.Module):
         source_feat: torch.Tensor,
         num_players: int,
     ) -> torch.Tensor:
-        trunk_out, pc_key = self._trunk(global_feat, source_feat, num_players)
+        trunk_out, pc_key, _ = self._trunk(global_feat, source_feat, num_players)
         return torch.tanh(self.value_heads[pc_key](trunk_out))

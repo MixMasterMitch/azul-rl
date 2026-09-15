@@ -7,6 +7,7 @@ import torch
 from agent.env import actions as A
 from agent.env import batched_engine as BE
 from agent.search import gumbel_mcts as G
+from agent.net import encoder as ENC
 
 
 def test_root_value_index_same_player() -> None:
@@ -38,7 +39,7 @@ class _WallFeatureValueNet:
         num_players: int,
     ) -> torch.Tensor:
         del source_feat, num_players
-        wall_start = 5 + 1 + 3 + 5 + 5 + 10
+        wall_start = 19 + ENC.D_PATTERN
         wall_row0_col0 = global_feat[:, wall_start]
         value = wall_row0_col0 * 2.0 - 1.0
         return value.unsqueeze(1).expand(-1, BE.MAX_PLAYERS).clone()

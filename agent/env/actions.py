@@ -36,8 +36,8 @@ NUM_TARGETS: int = NUM_PATTERN_LINES + 1  # 5 pattern lines + floor
 FLOOR_TARGET: int = 5
 
 NUM_ACTIONS: int = NUM_SOURCES * NUM_COLORS * NUM_TARGETS  # 300
-# Mask value for illegal actions (must fit float16 for CUDA AMP).
-ILLEGAL_LOGIT: float = -1e4
+# FP32 policy logits; learner and search do not use float16.
+ILLEGAL_LOGIT: float = -1e9
 
 MAX_PLAYERS: int = 4
 FLOOR_SIZE: int = 7

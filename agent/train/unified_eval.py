@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 import multiprocessing
+import queue
 import random as stdlib_random
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 import torch
 
-from ..env import batched_engine as BE
+from ..env import engine as BE
 from ..eval import bots as B
 from ..eval.heuristic_opus import HeuristicOpusBot
+from ..eval.builtin_opponents import BUILTIN_BOTS, builtin_identity
 from ..net import model as M
 from ..search import gumbel_mcts as G
+from ..search.config import SearchConfig
+from ..eval.inference import InferenceModel
+from ..env.outcomes import _shared_victory_mask
 from . import checkpointing as CK
 from .instrumentation import PerfCounters, maybe_time, resource_delta, resource_snapshot
 
@@ -37,6 +43,13 @@ class UnifiedEvalConfig:
     q_scale: float = 10.0
     profile: bool = False
     num_workers: int = 1
+    inference_device: str = "cpu"
+    search_backend: str = "one_ply"
+    astra_opponent_fraction: float = 0.125
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.astra_opponent_fraction) or not 0 <= self.astra_opponent_fraction <= 1:
+            raise ValueError("astra_opponent_fraction must be between zero and one")
 
 
 @dataclasses.dataclass
@@ -45,6 +58,7 @@ class PairwiseResult:
     loser: str
     weight: float
     num_players: int = 2
+    is_tie: bool = False
 
 
 def _distribute_games(total: int, w2: float, w3: float, w4: float) -> Tuple[int, int, int]:
@@ -62,12 +76,25 @@ def extract_pairwise_results(
     winner_seats: torch.Tensor,
     finished: torch.Tensor,
     num_players: int,
+    winning_mask: torch.Tensor | None = None,
 ) -> List[PairwiseResult]:
     results: List[PairwiseResult] = []
     for b in range(winner_seats.shape[0]):
         if not finished[b]:
             continue
         w = int(winner_seats[b].item())
+        if w == BE.SHARED_VICTORY:
+            if winning_mask is None and num_players != 2:
+                continue
+            winners = (winning_mask[b].nonzero().flatten().tolist() if winning_mask is not None else [0, 1])
+            for p in winners:
+                for q in range(num_players):
+                    left, right = seat_names[b][p], seat_names[b][q]
+                    if p == q or left == right:
+                        continue
+                    tied = q in winners
+                    results.append(PairwiseResult(left, right, 0.5 if tied else 1.0, num_players, tied))
+            continue
         if w < 0:
             continue
         winner_name = seat_names[b][w]
@@ -91,6 +118,7 @@ def _run_multiplayer_games(
     seed: int,
     max_turns: int,
     perf: PerfCounters | None = None,
+    astra_opponent_fraction: float = 0.0,
 ) -> Tuple[List[PairwiseResult], Dict[str, float]]:
     if num_games == 0:
         return [], {}
@@ -98,6 +126,11 @@ def _run_multiplayer_games(
     device = "cpu"
     rng = stdlib_random.Random(seed)
     other_names = [n for n in policies if n != eval_agent_name]
+    non_astra_names = [name for name in other_names if name != "astra"]
+    if astra_opponent_fraction > 0 and "astra" not in other_names:
+        raise ValueError("Astra evaluation was requested but no Astra policy was supplied")
+    if astra_opponent_fraction < 1 and not non_astra_names:
+        raise ValueError("Evaluation requires a non-Astra opponent when Astra fraction is below one")
 
     seat_names: List[List[str]] = []
     for _ in range(num_games):
@@ -106,11 +139,16 @@ def _run_multiplayer_games(
         seats[eval_seat] = eval_agent_name
         for p in range(num_players):
             if p != eval_seat:
-                seats[p] = rng.choice(other_names)
+                if "astra" in other_names and astra_opponent_fraction > 0:
+                    if rng.random() < astra_opponent_fraction:
+                        seats[p] = "astra"
+                    else:
+                        seats[p] = rng.choice(non_astra_names)
+                else:
+                    seats[p] = rng.choice(non_astra_names)
         seat_names.append(seats)
 
     engine = BE.BatchedEngine(num_games, num_players, device=device, seed=seed)
-    prev_ended = torch.zeros(num_games, dtype=torch.bool, device=device)
 
     turn = 0
     while turn < max_turns and (~engine.ended).any():
@@ -127,41 +165,63 @@ def _run_multiplayer_games(
                 policy_for_game.setdefault(name, []).append(b)
 
         for name, game_indices in policy_for_game.items():
-            stage_name = name if name in {"eval_agent", "random", "heuristic", "heuristic_opus"} else "league"
+            stage_name = name if name in {"eval_agent", "random", "heuristic", "heuristic_opus", "astra"} else "league"
             with maybe_time(perf, f"eval_{num_players}p_policy_{stage_name}"):
                 idx = torch.tensor(game_indices, dtype=torch.long, device=device)
                 sub = engine.index_select(idx)
                 sub_actions = policies[name](sub)
+                if not sub.legal_action_mask().gather(1, sub_actions[:, None]).all():
+                    raise RuntimeError(f"Evaluation policy {name} returned an illegal action")
                 actions.index_copy_(0, idx, sub_actions)
             if perf is not None:
                 perf.add_count(f"eval_{num_players}p_policy_{stage_name}_positions", len(game_indices))
 
         with maybe_time(perf, f"eval_{num_players}p_env_step"):
             engine.step(actions)
-        prev_ended = engine.ended.clone()
         turn += 1
 
     winners = engine.get_winners()
     finished = engine.ended
-    pairwise = extract_pairwise_results(seat_names, winners, finished, num_players)
+    shared_mask = _shared_victory_mask(engine, torch.arange(num_games), num_players)
+    pairwise = extract_pairwise_results(seat_names, winners, finished, num_players, shared_mask)
 
-    eval_wins = 0
-    eval_finished = 0
+    wins = losses = shared = 0
+    shares = [0.0] * num_games
     for b in range(num_games):
         if not finished[b]:
             continue
-        w = int(winners[b].item())
-        if w < 0:
-            continue
-        eval_finished += 1
-        if seat_names[b][w] == eval_agent_name:
-            eval_wins += 1
-
+        w = int(winners[b])
+        eval_seat = seat_names[b].index(eval_agent_name)
+        if w == BE.SHARED_VICTORY and shared_mask[b, eval_seat]:
+            shared += 1
+            shares[b] = 1.0 / int(shared_mask[b].sum())
+        elif w >= 0 and seat_names[b][w] == eval_agent_name:
+            wins += 1
+            shares[b] = 1.0
+        else:
+            losses += 1
+    count = wins + losses + shared
     metrics = {
         f"games_{num_players}p": float(num_games),
-        f"finished_{num_players}p": float(int(finished.sum().item())),
-        f"eval_winrate_{num_players}p": eval_wins / max(eval_finished, 1),
+        f"finished_{num_players}p": float(count),
+        f"wins_{num_players}p": float(wins),
+        f"losses_{num_players}p": float(losses),
+        f"shared_{num_players}p": float(shared),
+        f"unfinished_{num_players}p": float(num_games - count),
+        f"win_share_sum_{num_players}p": sum(shares),
+        f"eval_winrate_{num_players}p": wins / max(count, 1),
+        f"eval_match_score_{num_players}p": sum(shares) / max(count, 1),
+        f"eval_win_share_{num_players}p": sum(shares) / max(count, 1),
     }
+    if "astra" in policies:
+        suffix = f"{num_players}p_{'vs' if num_players == 2 else 'with'}_astra"
+        selected = [b for b, names in enumerate(seat_names) if "astra" in names]
+        completed = [b for b in selected if finished[b]]
+        credit = sum(shares[b] for b in completed)
+        metrics.update({f"games_{suffix}": float(len(selected)), f"finished_{suffix}": float(len(completed)),
+                        f"unfinished_{suffix}": float(len(selected) - len(completed)),
+                        f"win_share_sum_{suffix}": credit,
+                        f"eval_win_share_{suffix}": credit / max(len(completed), 1)})
     return pairwise, metrics
 
 
@@ -175,31 +235,36 @@ def run_unified_eval(
 ) -> Dict:
     from ..net import encoder as ENC
 
+    torch.set_num_threads(1)
     t_start = time.monotonic()
     perf = PerfCounters(enabled=config.profile, device="cpu")
     resource_start = resource_snapshot() if config.profile else None
     eval_net = M.AzulNet(hidden=hidden, arch=arch)
     eval_net.load_state_dict(state_dict)
     eval_net.eval()
+    torch.manual_seed(seed)
 
     eval_agent_name = "eval_agent"
 
     def _make_net_policy(net: M.AzulNet, num_sims: int, num_players: int):
+        inference = InferenceModel(net, config.inference_device)
+        calls = 0
         def choose(engine: BE.BatchedEngine) -> torch.Tensor:
+            nonlocal calls
+            calls += 1
             with torch.no_grad():
                 act, _ = G.gumbel_root_act(
-                    engine,
-                    net,
-                    num_sims=num_sims,
-                    temperature=config.temperature,
+                    engine, inference, num_sims=num_sims, temperature=config.temperature,
                     q_scale=config.q_scale,
+                    search_config=SearchConfig(backend=config.search_backend,
+                        num_simulations=num_sims, temperature=config.temperature,
+                        q_scale=config.q_scale, seed=seed * 100003 + calls),
                 )
             return act
-
         return choose
 
     class _BotPolicy:
-        def __init__(self, bot: B.RandomBot | B.HeuristicBot, num_players: int):
+        def __init__(self, bot: B.Bot, num_players: int) -> None:
             self.bot = bot
             self.num_players = num_players
 
@@ -217,14 +282,15 @@ def run_unified_eval(
         "heuristic": _BotPolicy(B.HeuristicBot(seed=seed + 1), 2),
         "heuristic_opus": _BotPolicy(HeuristicOpusBot(seed=seed + 2), 2),
     }
+    astra_identities = {}
+    if config.astra_opponent_fraction > 0:
+        astra_identities = {str(n): builtin_identity("astra", n) for n in (2, 3, 4)}
+        policies["astra"] = _BotPolicy(BUILTIN_BOTS["astra"](seed=seed + 3), 2)
 
     league_names: List[str] = []
     for i, path in enumerate(league_checkpoint_paths):
         try:
             net, payload = CK.load_net_from_checkpoint(path, map_location="cpu")
-            spec = CK.checkpoint_net_spec(payload)
-            net = M.AzulNet(hidden=spec.hidden, arch=spec.arch)
-            net.load_state_dict(CK.checkpoint_net_state_dict(payload))
             net.eval()
             name = f"league_{i}"
             policies[name] = _make_net_policy(net, config.num_sims, 2)
@@ -255,6 +321,7 @@ def run_unified_eval(
             seed=seed + num_players * 1000,
             max_turns=effective_max_turns,
             perf=perf,
+            astra_opponent_fraction=config.astra_opponent_fraction,
         )
         all_pairwise.extend(pairwise)
         all_metrics.update(metrics)
@@ -266,7 +333,8 @@ def run_unified_eval(
         all_metrics.update(perf.snapshot(prefix="eval_profile"))
 
     pairwise_list = [
-        {"winner": pr.winner, "loser": pr.loser, "weight": pr.weight, "num_players": pr.num_players}
+        {"winner": pr.winner, "loser": pr.loser, "weight": pr.weight,
+         "num_players": pr.num_players, "is_tie": pr.is_tie}
         for pr in all_pairwise
     ]
 
@@ -275,6 +343,7 @@ def run_unified_eval(
         "metrics": all_metrics,
         "eval_wall_s": wall_s,
         "league_opponents": league_names,
+        "astra_identity": astra_identities,
     }
 
 
@@ -317,144 +386,151 @@ def _merge_eval_results(parts: List[Dict]) -> Dict:
             return part
         merged_pairwise.extend(part.get("pairwise", []))
         for k, v in part.get("metrics", {}).items():
-            if isinstance(v, (int, float)):
+            if isinstance(v, (int, float)) and not k.startswith(("eval_winrate_", "eval_match_score_", "eval_win_share_")):
                 merged_metrics[k] = merged_metrics.get(k, 0.0) + float(v)
         wall_s = max(wall_s, float(part.get("eval_wall_s", 0.0)))
         if not league_opponents:
             league_opponents = part.get("league_opponents", [])
+    for players in (2, 3, 4):
+        n = merged_metrics.get(f"finished_{players}p", 0)
+        if f"games_{players}p" in merged_metrics:
+            wins = merged_metrics.get(f"wins_{players}p", 0)
+            shared = merged_metrics.get(f"shared_{players}p", 0)
+            merged_metrics[f"eval_winrate_{players}p"] = wins / max(n, 1)
+            credit = merged_metrics.get(f"win_share_sum_{players}p", wins + 0.5 * shared)
+            merged_metrics[f"eval_match_score_{players}p"] = credit / max(n, 1)
+            merged_metrics[f"eval_win_share_{players}p"] = credit / max(n, 1)
+        suffix = f"{players}p_{'vs' if players == 2 else 'with'}_astra"
+        if f"games_{suffix}" in merged_metrics:
+            merged_metrics[f"eval_win_share_{suffix}"] = (merged_metrics[f"win_share_sum_{suffix}"]
+                                                           / max(merged_metrics[f"finished_{suffix}"], 1))
+    identities = [part.get("astra_identity", {}) for part in parts]
+    if any(identity != identities[0] for identity in identities):
+        return {"error": "Astra configuration/native identity differed between evaluation workers"}
+    merged_metrics["eval_wall_s"] = wall_s
     return {
         "pairwise": merged_pairwise,
         "metrics": merged_metrics,
         "eval_wall_s": wall_s,
         "league_opponents": league_opponents,
+        "astra_identity": identities[0],
     }
 
 
 class UnifiedEvalHandle:
     def __init__(self, config: UnifiedEvalConfig, hidden: int = 256, arch: str = "attn") -> None:
-        self._config = config
-        self._hidden = hidden
-        self._arch = arch
-        self._processes: List[multiprocessing.Process] = []
-        ctx = multiprocessing.get_context("spawn")
-        self._mp_ctx = ctx
-        self._queue: multiprocessing.Queue = ctx.Queue()
-        self._iteration_tag: Optional[int] = None
-        self._expected_workers: int = 0
+        self._config, self._hidden, self._arch = config, hidden, arch
+        self._mp_ctx = multiprocessing.get_context("spawn")
+        self._processes: list[multiprocessing.Process] = []
+        self._queue = None
+        self._pending: dict[int, dict] = {}
+        self._iteration_tag: int | None = None
+        self._expected_workers = 0
+        self._context: dict = {}
+        self._started = 0.0
+        self._immediate = None
 
     def is_active(self) -> bool:
-        return any(p.is_alive() for p in self._processes)
+        # Completed subprocesses may still have undelivered results.
+        return self._iteration_tag is not None
 
-    def launch(
-        self,
-        net_state_dict: Dict[str, torch.Tensor],
-        league_checkpoint_paths: List[str],
-        iteration: int,
-        seed: int,
-    ) -> bool:
+    def launch(self, net_state_dict: Dict[str, torch.Tensor], league_checkpoint_paths: List[str],
+               iteration: int, seed: int, context: dict | None = None) -> bool:
         if self.is_active():
             return False
-        self._reap()
-        n_workers = max(1, self._config.num_workers)
-        total = self._config.total_games
-        base = total // n_workers
-        extra = total % n_workers
-        self._expected_workers = n_workers
+        if self._config.total_games <= 0:
+            return False
+        if self._config.inference_device.startswith("cuda"):
+            from .reproducibility import capture_rng_state, restore_rng_state
+            rng = capture_rng_state()
+            self._iteration_tag = iteration
+            self._context = dict(context or {})
+            try:
+                self._immediate = run_unified_eval(net_state_dict, league_checkpoint_paths,
+                    self._config, seed, self._hidden, self._arch)
+            except Exception as exc:
+                self._immediate = {"error": str(exc)}
+            finally:
+                restore_rng_state(rng)
+            return True
+        self._queue = self._mp_ctx.Queue()
+        self._context = dict(context or {})
         self._iteration_tag = iteration
-
-        for worker_id in range(n_workers):
-            shard_games = base + (1 if worker_id < extra else 0)
-            if shard_games <= 0:
-                continue
-            shard_config = dataclasses.replace(self._config, total_games=shard_games)
-            proc = self._mp_ctx.Process(
-                target=_unified_eval_worker,
-                args=(
-                    self._queue,
-                    net_state_dict,
-                    league_checkpoint_paths,
-                    shard_config,
-                    iteration,
-                    seed,
-                    self._hidden,
-                    self._arch,
-                    worker_id,
-                ),
-                daemon=True,
-            )
+        self._started = time.monotonic()
+        n = min(max(1, self._config.num_workers), self._config.total_games)
+        self._expected_workers = n
+        self._pending = {}
+        for worker in range(n):
+            shard = self._config.total_games // n + int(worker < self._config.total_games % n)
+            config = dataclasses.replace(self._config, total_games=shard)
+            proc = self._mp_ctx.Process(target=_unified_eval_worker,
+                args=(self._queue, net_state_dict, league_checkpoint_paths, config,
+                      iteration, seed, self._hidden, self._arch, worker), daemon=True)
             proc.start()
             self._processes.append(proc)
         return True
 
+    def _drain(self) -> None:
+        while self._queue is not None:
+            try:
+                iteration, worker, result = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if iteration == self._iteration_tag:
+                self._pending[worker] = result
+
     def try_collect(self) -> Optional[Tuple[int, Dict]]:
-        if not self._processes:
-            return None
-        collected = self._drain_all_pending()
-        if len(collected) >= self._expected_workers:
-            self._reap()
-            return self._merge_collected(collected)
         if not self.is_active():
-            self._reap()
-            if collected:
-                return self._merge_collected(collected)
+            return None
+        if self._immediate is not None:
+            result, iteration = self._immediate, self._iteration_tag
+            result["job_context"] = self._context
+            self._immediate = None
+            self.cleanup()
+            return iteration, result
+        self._drain()
+        if len(self._pending) == self._expected_workers:
+            return self._finish()
+        if time.monotonic() - self._started > self._config.timeout_s:
+            return self._finish(error="evaluation timed out before all workers returned")
+        if all(not p.is_alive() for p in self._processes):
+            # join flushes worker queue feeder threads before the final drain.
+            for p in self._processes:
+                p.join(timeout=0.1)
+            self._drain()
+            if len(self._pending) == self._expected_workers:
+                return self._finish()
+            return self._finish(error="evaluation worker exited without a result")
         return None
 
     def wait_and_collect(self, timeout: float | None = None) -> Optional[Tuple[int, Dict]]:
-        if not self._processes:
-            return None
-        effective_timeout = timeout if timeout is not None else self._config.timeout_s
-        deadline = time.monotonic() + effective_timeout
-        collected: List[Tuple[int, int, Dict]] = []
-        while time.monotonic() < deadline:
-            collected.extend(self._drain_all_pending())
-            if len(collected) >= self._expected_workers:
-                break
-            if not self.is_active() and self._queue.empty():
-                break
+        deadline = time.monotonic() + (timeout if timeout is not None else self._config.timeout_s)
+        while self.is_active():
+            result = self.try_collect()
+            if result is not None:
+                return result
+            if time.monotonic() >= deadline:
+                return self._finish(error="evaluation timed out")
             time.sleep(0.05)
+        return None
 
-        for proc in self._processes:
-            if proc.is_alive():
-                proc.join(timeout=1)
-            if proc.is_alive():
-                proc.terminate()
-                proc.join(timeout=5)
-        collected.extend(self._drain_all_pending())
-        self._reap()
-        if not collected:
-            return None
-        return self._merge_collected(collected)
+    def _finish(self, error: str | None = None) -> Tuple[int, Dict]:
+        iteration = self._iteration_tag
+        result = ({"error": error} if error else _merge_eval_results([self._pending[k] for k in sorted(self._pending)]))
+        result["job_context"] = self._context
+        self.cleanup()
+        return iteration, result
 
     def cleanup(self) -> None:
         for proc in self._processes:
+            proc.join(timeout=0.2)
             if proc.is_alive():
                 proc.terminate()
-                proc.join(timeout=5)
-        self._reap()
-        while not self._queue.empty():
-            try:
-                self._queue.get_nowait()
-            except Exception:
-                break
-
-    def _drain_all_pending(self) -> List[Tuple[int, int, Dict]]:
-        out: List[Tuple[int, int, Dict]] = []
-        while True:
-            try:
-                out.append(self._queue.get_nowait())
-            except Exception:
-                break
-        return out
-
-    def _merge_collected(self, collected: List[Tuple[int, int, Dict]]) -> Tuple[int, Dict]:
-        iteration = collected[0][0]
-        parts = [item[2] for item in collected]
-        return iteration, _merge_eval_results(parts)
-
-    def _reap(self) -> None:
-        for proc in self._processes:
-            if not proc.is_alive():
-                proc.join(timeout=1)
+                proc.join(timeout=2)
+        if self._queue is not None:
+            self._queue.close()
+            self._queue.join_thread()
+        self._queue = None
         self._processes = []
+        self._pending = {}
         self._iteration_tag = None
-        self._expected_workers = 0

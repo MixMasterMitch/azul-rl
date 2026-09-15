@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import torch
 
 from agent.env import actions as A
-from agent.env import batched_engine as BE
+from agent.env import engine as BE
 from agent.net import encoder as ENC
 from agent.net.model import AzulNet
 from agent.search import gumbel_mcts as G

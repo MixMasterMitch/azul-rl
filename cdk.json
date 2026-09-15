@@ -1,5 +1,5 @@
 {
-  "app": "python3 infra/app.py",
+  "app": "python -m infra.app",
   "context": {
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
     "@aws-cdk/core:stackRelativeExports": true

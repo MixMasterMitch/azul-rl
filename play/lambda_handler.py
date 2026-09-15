@@ -1,85 +1,87 @@
-"""AWS Lambda handler wrapping the Flask app."""
-
+"""API Gateway HTTP API v2 to WSGI adapter; no ASGI dependency or fallback path."""
 from __future__ import annotations
 
-import os
+import base64
+from io import BytesIO
+import logging
+import json
+import sys
+import time
+from typing import Any, Callable
+from urllib.parse import unquote
 
-# Set up environment for Lambda
-os.environ.setdefault("FLASK_ENV", "production")
-
-from .server import create_app
-
-app = create_app()
-
-
-def handler(event, context):
-    """Lambda handler using mangum-style WSGI adapter."""
-    try:
-        from mangum import Mangum
-        mangum_handler = Mangum(app)
-        return mangum_handler(event, context)
-    except ImportError:
-        # Fallback: manual API Gateway v2 event parsing
-        return _handle_apigw_v2(event)
+_app: Any = None
+logging.getLogger().setLevel(logging.INFO)
 
 
-def _handle_apigw_v2(event: dict) -> dict:
-    """Minimal API Gateway v2 event handler."""
-    import json
-    from io import BytesIO
-    from urllib.parse import urlencode
+def _get_app() -> Any:
+    global _app
+    if _app is None:
+        started = time.perf_counter()
+        logger = logging.getLogger(__name__)
+        logger.info(json.dumps({"event": "initialization", "stage": "imports_started"}))
+        from .server import create_app
+        logger.info(json.dumps({"event": "initialization", "stage": "imports_complete",
+                                "duration_ms": round((time.perf_counter() - started) * 1000, 3)}))
+        _app = create_app()
+        logger.info(json.dumps({"event": "initialization", "stage": "app_ready",
+                                "duration_ms": round((time.perf_counter() - started) * 1000, 3)}))
+    return _app
 
-    request_context = event.get("requestContext", {})
-    http_info = request_context.get("http", {})
-    method = http_info.get("method", "GET")
-    path = event.get("rawPath", "/")
-    headers = event.get("headers", {})
-    body = event.get("body", "")
-    is_base64 = event.get("isBase64Encoded", False)
 
-    if is_base64 and body:
-        import base64
-        body = base64.b64decode(body)
-    elif body:
-        body = body.encode("utf-8")
-    else:
-        body = b""
-
-    query_string = event.get("rawQueryString", "")
-
+def handle_wsgi(event: dict, app: Callable) -> dict:
+    http = event.get("requestContext", {}).get("http", {})
+    headers = {key.lower(): value for key, value in (event.get("headers") or {}).items()}
+    body = event.get("body") or ""
+    payload = base64.b64decode(body) if event.get("isBase64Encoded") else body.encode("utf-8")
+    if event.get("cookies"):
+        headers["cookie"] = "; ".join(event["cookies"])
     environ = {
-        "REQUEST_METHOD": method,
-        "PATH_INFO": path,
-        "QUERY_STRING": query_string,
-        "CONTENT_TYPE": headers.get("content-type", ""),
-        "CONTENT_LENGTH": str(len(body)),
-        "SERVER_NAME": "lambda",
-        "SERVER_PORT": "443",
-        "SERVER_PROTOCOL": "HTTP/1.1",
-        "wsgi.input": BytesIO(body),
-        "wsgi.errors": BytesIO(),
-        "wsgi.url_scheme": "https",
+        "REQUEST_METHOD": http.get("method", "GET"),
+        "SCRIPT_NAME": "",
+        "PATH_INFO": unquote(event.get("rawPath", "/")).encode("utf-8").decode("latin-1"),
+        "QUERY_STRING": event.get("rawQueryString", ""),
+        "SERVER_NAME": headers.get("host", "lambda"), "SERVER_PORT": "443",
+        "SERVER_PROTOCOL": http.get("protocol", "HTTP/1.1"),
+        "REMOTE_ADDR": http.get("sourceIp", ""),
+        "CONTENT_TYPE": headers.get("content-type", ""), "CONTENT_LENGTH": str(len(payload)),
+        "wsgi.version": (1, 0), "wsgi.url_scheme": "https", "wsgi.input": BytesIO(payload),
+        "wsgi.errors": sys.stderr, "wsgi.multithread": False, "wsgi.multiprocess": False,
+        "wsgi.run_once": False,
     }
-
     for key, value in headers.items():
-        environ[f"HTTP_{key.upper().replace('-', '_')}"] = value
+        if key not in {"content-type", "content-length"}:
+            environ["HTTP_" + key.upper().replace("-", "_")] = value
+    response: dict = {}
+    chunks: list[bytes] = []
 
-    response_started = []
-    response_body = []
-
-    def start_response(status, response_headers, exc_info=None):
-        response_started.append((status, response_headers))
+    def start_response(status: str, response_headers: list[tuple[str, str]], exc_info: Any = None) -> Callable:
+        if exc_info and response:
+            raise exc_info[1].with_traceback(exc_info[2])
+        response.update(statusCode=int(status.split()[0]), headers={}, cookies=[])
+        for key, value in response_headers:
+            if key.lower() == "set-cookie":
+                response["cookies"].append(value)
+            else:
+                response["headers"][key] = value
+        return chunks.append
 
     result = app(environ, start_response)
-    for data in result:
-        response_body.append(data)
+    try:
+        chunks.extend(result)
+    finally:
+        if hasattr(result, "close"):
+            result.close()
+    content = b"".join(chunks)
+    # API Gateway decodes binary output; UTF-8 JSON remains directly readable.
+    try:
+        response["body"] = content.decode("utf-8")
+        response["isBase64Encoded"] = False
+    except UnicodeDecodeError:
+        response["body"] = base64.b64encode(content).decode()
+        response["isBase64Encoded"] = True
+    return response
 
-    status_code = int(response_started[0][0].split(" ")[0])
-    resp_headers = dict(response_started[0][1])
-    resp_body = b"".join(response_body).decode("utf-8")
 
-    return {
-        "statusCode": status_code,
-        "headers": resp_headers,
-        "body": resp_body,
-    }
+def handler(event: dict, context: Any) -> dict:
+    return handle_wsgi(event, _get_app())

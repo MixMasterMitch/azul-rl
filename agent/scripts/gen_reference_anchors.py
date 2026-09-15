@@ -21,7 +21,7 @@ import torch
 
 from ..eval import bots as B
 from ..eval.heuristic_opus import HeuristicOpusBot
-from ..env import batched_engine as BE
+from ..env import engine as BE
 from ..train import ranking as R
 from ..train.league import League
 

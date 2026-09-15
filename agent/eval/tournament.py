@@ -7,7 +7,7 @@ from typing import Callable
 
 import torch
 
-from ..env import batched_engine as BE
+from ..env import engine as BE
 from ..net import encoder as ENC
 from ..net import model as M
 from ..search import gumbel_mcts as G

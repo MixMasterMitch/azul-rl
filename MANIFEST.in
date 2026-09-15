@@ -1,0 +1,3 @@
+prune agent/runs
+prune agent/tests
+prune play/tests

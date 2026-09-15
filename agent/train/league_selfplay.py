@@ -8,10 +8,11 @@ from typing import Optional
 
 import torch
 
-from ..env import batched_engine as BE
+from ..env import engine as BE
 from ..net import encoder as ENC
 from ..net import model as M
 from ..search.gumbel_mcts import gumbel_root_act
+from ..search.config import SearchConfig
 from .instrumentation import PerfCounters, maybe_time, tensor_nbytes
 from .league import League
 from .replay_buffer import ReplayBuffer
@@ -43,6 +44,7 @@ def run_league_selfplay(
     q_scale: float = 10.0,
     temperature_schedule: Optional[callable] = None,
     perf: PerfCounters | None = None,
+    search_backend: str = "one_ply",
 ) -> dict:
     """Play games vs league checkpoints; buffer only main-agent positions."""
     if temperature_schedule is None:
@@ -65,6 +67,7 @@ def run_league_selfplay(
             seed=seed,
             time_discount=time_discount,
             reward_mode=reward_mode,
+            search_backend=search_backend,
             dirichlet_alpha=dirichlet_alpha,
             dirichlet_mix=dirichlet_mix,
             q_scale=q_scale,
@@ -125,6 +128,7 @@ def run_league_selfplay(
                         dirichlet_alpha=dirichlet_alpha,
                         dirichlet_mix=dirichlet_mix,
                         q_scale=q_scale,
+                        search_config=SearchConfig(backend=search_backend, num_simulations=num_sims, temperature=temp, q_scale=q_scale, dirichlet_alpha=dirichlet_alpha, dirichlet_mix=dirichlet_mix, reward_mode=reward_mode),
                         perf=perf,
                     )
 
@@ -176,7 +180,7 @@ def run_league_selfplay(
                 sub = engine.index_select(opp_idx)
                 with torch.no_grad():
                     opp_actions, _ = gumbel_root_act(
-                        sub, opp_net, num_sims=opponent_sims, perf=perf
+                        sub, opp_net, num_sims=opponent_sims, perf=perf, reward_mode=reward_mode
                     )
                 actions.index_copy_(0, opp_idx, opp_actions)
 

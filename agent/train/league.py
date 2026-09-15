@@ -20,7 +20,8 @@ from ..net import model as M
 from . import checkpointing as CK
 from . import ranking as R
 
-_ANCHOR_BOTS = ("random", "heuristic", "heuristic_opus")
+# Baseline diagnostics do not make Astra a fixed rating anchor.
+_BASELINE_BOTS = ("random", "heuristic", "heuristic_opus", "astra")
 
 
 def _record_anchor_winrates(
@@ -29,7 +30,7 @@ def _record_anchor_winrates(
     results: list[dict],
 ) -> None:
     for pc in R.PLAYER_COUNTS:
-        for anchor in _ANCHOR_BOTS:
+        for anchor in _BASELINE_BOTS:
             score, total = R.winrate_vs_anchor(results, entity, anchor, pc)
             games_key = f"games_{pc}p_vs_{anchor}"
             wr_key = f"winrate_{pc}p_vs_{anchor}"
@@ -179,7 +180,7 @@ class League:
         use_rank = "rank_winrate_vs_random" in entry or "rank_winrate_vs_heuristic" in entry
         prefix = "rank_" if use_rank else ""
         total_games = 512 if use_rank else 256
-        for opponent in ("random", "heuristic", "heuristic_opus"):
+        for opponent in _BASELINE_BOTS:
             winrate_key = f"{prefix}winrate_vs_{opponent}"
             if winrate_key not in entry:
                 continue
@@ -201,6 +202,8 @@ class League:
             self.recompute_ratings()
 
     def _drop_entry(self, entry: dict) -> None:
+        if entry.get("pinned", False):
+            return
         path = self._resolve_path(entry["path"])
         if path.exists():
             path.unlink()
@@ -408,7 +411,7 @@ class League:
         use_rank = "rank_winrate_vs_random" in row or "rank_winrate_vs_heuristic" in row
         prefix = "rank_" if use_rank else ""
         total_games = rank_games if use_rank else eval_games
-        for opponent in ("random", "heuristic", "heuristic_opus"):
+        for opponent in _BASELINE_BOTS:
             winrate_key = f"{prefix}winrate_vs_{opponent}"
             if winrate_key not in row:
                 continue

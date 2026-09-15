@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 
 from ..env import actions as A
-from ..env import batched_engine as BE
+from ..env import engine as BE
 
 
 def _action_layout(device: torch.device) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:

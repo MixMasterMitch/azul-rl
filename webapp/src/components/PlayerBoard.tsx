@@ -119,6 +119,7 @@ export function PlayerBoard({
             size={CELL}
             style={{ borderRadius: '3px' }}
             onClick={rowValid ? () => handleRowClick(row) : undefined}
+            title={rowValid ? `Place on pattern line ${row + 1}` : undefined}
           />
         );
       }
@@ -141,6 +142,7 @@ export function PlayerBoard({
           <button
             key={col}
             type="button"
+            aria-label={`Place on pattern line ${row + 1}`}
             onClick={() => handleRowClick(row)}
             style={{ padding: 0, border: 'none', background: 'none' }}
           >
@@ -220,7 +222,7 @@ export function PlayerBoard({
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
         <h4>
-          Player {playerIndex} {isHuman && '(You)'}
+          Player {playerIndex + 1} {isHuman && '(You)'}
         </h4>
         <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ffd54f' }}>
           {player.score} pts
@@ -241,6 +243,12 @@ export function PlayerBoard({
 
       <div style={{ marginTop: '0.75rem' }}>
         <div style={{ fontSize: '0.75rem', color: '#aaa', marginBottom: '0.35rem' }}>Floor Line</div>
+        {placing && validTargets?.has(FLOOR_TARGET) && (
+          <button type="button" onClick={handleFloorClick}
+            style={{ marginBottom: '.5rem', padding: '.3rem .5rem', fontSize: '.75rem' }}>
+            Place on floor
+          </button>
+        )}
         <div style={{ display: 'flex', gap: '4px', alignItems: 'flex-end' }}>
           {FLOOR_PENALTIES.map((penalty, i) => {
             const slot = player.floor_slots?.[i] ?? null;

@@ -19,11 +19,15 @@ dev = [
 ]
 aws = [
     "boto3>=1.28",
-    "aws-cdk-lib>=2.100.0",
+    "botocore[crt]>=1.42.67",
+    "aws-cdk-lib==2.240.0",
     "constructs>=10.0",
 ]
 play = [
     "flask>=3.0",
+]
+browser = [
+    "playwright==1.58.0",
 ]
 
 [project.scripts]
@@ -43,3 +47,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["agent*", "play*"]
+exclude = ["agent.runs*", "agent.tests*", "play.tests*"]
+
+[tool.setuptools.package-data]
+"agent.eval" = ["astra_configs/*.json"]

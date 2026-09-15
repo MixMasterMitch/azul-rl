@@ -7,6 +7,7 @@ import pathlib
 from typing import Any, Optional
 
 from agent.train import ranking as R
+from agent.train import rating_display as D
 
 
 HUMAN_ENTITY = "human"
@@ -46,6 +47,8 @@ class HumanRatingStore:
             for entity, rating in self.data["anchors"].items()
         }
         self._migrate_legacy_results()
+        if self.data.get('rating_display', {}).get('version') != D.VERSION:
+            self._refit_rating()
 
     def record_game(
         self,
@@ -187,17 +190,19 @@ class HumanRatingStore:
                 self.data.pop(f"rating_{pc}p", None)
                 continue
 
-            calibrated = R.calibrate_rating(raw, pc)
+            calibrated = D.to_display(raw, pc, D.scales_for(R.DEFAULT_REFERENCE_ANCHORS_PER_PC))
             games_at_pc = float(self.data.get(f"games_{pc}p", 0.0))
             if games_at_pc <= 0:
                 games_at_pc = 1.0
 
             self.data[f"rating_{pc}p"] = calibrated
+            self.data[f"raw_rating_{pc}p"] = raw
             calibrated_sum += calibrated * games_at_pc
             weight_sum += games_at_pc
 
         if weight_sum > 0:
             self.data["rating"] = calibrated_sum / weight_sum
+            self.data['rating_display'] = D.metadata(R.DEFAULT_REFERENCE_ANCHORS_PER_PC)
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

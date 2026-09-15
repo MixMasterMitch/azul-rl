@@ -50,13 +50,14 @@ def _play_random_steps(
     single_seed: int,
     batched_seed: int,
     rng_seed: int,
+    device: str = "cpu",
 ) -> None:
     rng = random.Random(rng_seed)
     single = SingleEngine(num_players=num_players, seed=single_seed)
     batched = BatchedEngine(
         batch_size=1,
         num_players=num_players,
-        device="cpu",
+        device=device,
         seed=batched_seed,
     )
     _copy_single_to_batched(single, batched)
@@ -77,13 +78,31 @@ def _play_random_steps(
 
         action = rng.choice(list(single_legal))
         single.step(action)
-        batched.step(torch.tensor([action], dtype=torch.long))
+        batched.step(torch.tensor([action], dtype=torch.long, device=device), finalize_round=False)
+        round_done = bool((batched.factory_tiles.sum() + batched.center_tiles.sum()) == 0)
+        batched.finalize_round()
 
-        _copy_batched_to_single(batched, single)
-        assert single.current_player == int(batched.current_player[0].item())
-        assert single.ended == bool(batched.ended[0].item())
-        for p in range(num_players):
-            assert single.players[p].score == int(batched.scores[0, p].item())
+        expected = BatchedEngine(1, num_players, device=device, seed=0)
+        _copy_single_to_batched(single, expected)
+        for name in ("center_tiles", "center_first", "pattern_count", "pattern_color",
+                     "wall", "floor_count", "floor_tiles", "floor_first", "scores",
+                     "current_player", "first_player", "ended"):
+            assert torch.equal(getattr(batched, name), getattr(expected, name)), (step_i, name)
+        if single.ended:
+            assert single.get_winner() == int(batched.get_winners()[0])
+        if round_done and not single.ended:
+            # Refills can distribute tiles differently, but cannot change the
+            # combined per-color draw/discard/factory inventory.
+            def inventory(e: BatchedEngine) -> torch.Tensor:
+                return e.bag + e.box_lid + e.factory_tiles.sum(1)
+            assert torch.equal(inventory(batched), inventory(expected)), (step_i, 'refill inventory')
+            # Only stochastic refill results are synchronized AFTER comparisons.
+            single.factory_tiles = batched.factory_tiles[0, :single.num_factories].tolist()
+            single.bag = batched.bag[0].tolist()
+            single.box_lid = batched.box_lid[0].tolist()
+        else:
+            for name in ('factory_tiles', 'bag', 'box_lid'):
+                assert torch.equal(getattr(batched, name), getattr(expected, name)), (step_i, name)
 
 
 def test_step_parity_random_play() -> None:
@@ -97,14 +116,17 @@ def test_step_parity_random_play() -> None:
     )
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
 @pytest.mark.parametrize("num_players", [2, 3, 4])
 @pytest.mark.parametrize("rng_seed", [1, 7, 99])
-def test_step_parity_longer_runs(num_players: int, rng_seed: int) -> None:
+def test_step_parity_longer_runs(num_players: int, rng_seed: int, device: str) -> None:
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA unavailable")
     _play_random_steps(
         num_players=num_players,
         num_steps=300,
         single_seed=rng_seed * 11,
         batched_seed=rng_seed,
         rng_seed=rng_seed + 100,
+        device=device,
     )
-

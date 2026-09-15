@@ -1,0 +1,31 @@
+{
+  "default_model_id": "net:league:294",
+  "league": "agent/runs/league/league.json",
+  "models": {
+    "net:league:294": {
+      "name": "RL Trained Bot",
+      "source": "agent/runs/league/ckpt_00294_i1350.pt",
+      "source_sha256": "2d8bc3284f5c943082d6be232f69b4cac4111e9e8ec02fbd6249e9c64c6ef862",
+      "league_index": 294,
+      "trained_player_counts": [
+        2
+      ],
+      "search": {
+        "backend": "one_ply",
+        "num_simulations": 64,
+        "temperature": 0.25,
+        "q_scale": 28,
+        "root_noise_scale": 1,
+        "dirichlet_alpha": 0,
+        "dirichlet_mix": 0,
+        "reward_mode": "binary",
+        "seed": null,
+        "move_deadline_s": null,
+        "max_root_candidates": 16,
+        "max_depth": 120,
+        "leaf_batch_size": 256,
+        "chance_samples": 4
+      }
+    }
+  }
+}

@@ -153,6 +153,7 @@ class BatchedEngine:
         num_players: int = 2,
         device: torch.device | str = "cpu",
         seed: Optional[int] = None,
+        game_seeds: list[int] | None = None,
     ):
         assert 2 <= num_players <= 4
         self.batch_size = batch_size
@@ -163,6 +164,10 @@ class BatchedEngine:
         if seed is not None:
             self._rng.manual_seed(seed)
 
+        if game_seeds is not None and len(game_seeds) != batch_size:
+            raise ValueError("one draw seed is required per game")
+        self._game_rngs = ([torch.Generator(device=self.device).manual_seed(s) for s in game_seeds]
+                           if game_seeds is not None else None)
         self._init_state()
 
     def _init_state(self) -> None:
@@ -206,6 +211,7 @@ class BatchedEngine:
         other.device = self.device
         other._rng = torch.Generator(device=_rng_device_for(self.device))
         other._rng.set_state(self._rng.get_state())
+        other._game_rngs = self._copy_game_rngs(indices.tolist())
         idx = indices.to(device=self.device, dtype=torch.long)
         for attr in _STATE_TENSOR_ATTRS:
             setattr(other, attr, getattr(self, attr).index_select(0, idx))
@@ -222,6 +228,7 @@ class BatchedEngine:
         other.device = self.device
         other._rng = torch.Generator(device=_rng_device_for(self.device))
         other._rng.set_state(self._rng.get_state())
+        other._game_rngs = self._copy_game_rngs([b for b in range(self.batch_size) for _ in range(repeats)])
         for attr in _STATE_TENSOR_ATTRS:
             setattr(other, attr, getattr(self, attr).repeat_interleave(repeats, dim=0))
         return other
@@ -235,6 +242,7 @@ class BatchedEngine:
         new.device = self.device
         new._rng = torch.Generator(device=_rng_device_for(self.device))
         new._rng.set_state(self._rng.get_state())
+        new._game_rngs = self._copy_game_rngs(list(range(self.batch_size)))
         for attr in _STATE_TENSOR_ATTRS:
             setattr(new, attr, getattr(self, attr).clone())
         return new
@@ -532,6 +540,10 @@ class BatchedEngine:
         if finalize_round:
             self._check_round_end_vectorized()
 
+    def finalize_round(self) -> None:
+        """Score and refill completed rounds, including terminal bonuses."""
+        self._check_round_end_vectorized()
+
     def _check_round_end_vectorized(self) -> None:
         """Detect finished factory-offer rounds and run wall-tiling per game."""
         factories_empty = self.factory_tiles[:, : self.num_factories].sum(dim=(1, 2)) == 0
@@ -637,6 +649,21 @@ class BatchedEngine:
         self.current_player[rows] = self.first_player[rows]
         self._fill_factories_batch(rows)
 
+    def _copy_game_rngs(self, indices: list[int]) -> list[torch.Generator] | None:
+        rngs = getattr(self, "_game_rngs", None)
+        if rngs is None:
+            return None
+        copies = [torch.Generator(device=self.device) for _ in indices]
+        for rng, b in zip(copies, indices):
+            rng.set_state(rngs[b].get_state())
+        return copies
+
+    def _draw_uniform(self, rows: torch.Tensor) -> torch.Tensor:
+        rngs = getattr(self, "_game_rngs", None)
+        if rngs is None:
+            return torch.rand((rows.numel(),), device=self.device, generator=self._rng)
+        return torch.stack([torch.rand((), device=self.device, generator=rngs[b]) for b in rows.tolist()])
+
     def _fill_factories_batch(self, rows: torch.Tensor) -> None:
         """Fill factory displays for selected games, refilling each bag from its lid as needed."""
         rows = rows.to(device=self.device, dtype=torch.long)
@@ -661,11 +688,7 @@ class BatchedEngine:
             draw_rows = rows[can_draw]
             totals = bag_total[can_draw]
             draws = torch.floor(
-                torch.rand(
-                    (draw_rows.numel(),),
-                    device=self.device,
-                    generator=self._rng,
-                )
+                self._draw_uniform(draw_rows)
                 * totals.to(torch.float32)
             ).to(torch.int16)
             cumulative = self.bag[draw_rows].to(torch.int16).cumsum(dim=1)

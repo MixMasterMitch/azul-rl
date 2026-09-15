@@ -52,6 +52,8 @@ export function FactoryDisplay({
 
   return (
     <div
+      role="group"
+      aria-label={`Factory ${sourceIndex + 1}`}
       style={{
         background: '#0f3460',
         borderRadius: '12px',

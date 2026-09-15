@@ -29,3 +29,13 @@ cdk.out/
 .cdk.staging/
 
 *.db
+
+# Rust build products (dependency locks and source stay tracked)
+native/**/target/
+*.so
+
+# Local games and generated release artifacts
+play/play_data/
+play/artifacts/
+.releases/
+.hosting-checks/

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import dataclasses
+import io
 import os
 import pathlib
+import zipfile
 from typing import Optional
 
 import torch
@@ -12,6 +14,7 @@ import torch
 from ..net import encoder as ENC
 from ..net.model import AzulNet
 from .replay_buffer import ReplayBuffer
+from .reproducibility import capture_rng_state, restore_rng_state, require_disk_space, tensor_bytes
 
 
 _V2_D_GLOBAL = 171
@@ -37,12 +40,16 @@ _V3_IS_CURRENT_OFFSET = _V3_SCORE_OFFSET + ENC.D_SCORE
 class NetSpec:
     hidden: int
     arch: str
+    model_version: int = 1
+    encoder_version: int = 3
 
 
 def checkpoint_net_spec(payload: dict) -> NetSpec:
     return NetSpec(
         hidden=int(payload.get("hidden", 192)),
         arch=str(payload.get("arch", "attn")),
+        model_version=int(payload.get("model_version", 1)),
+        encoder_version=int(payload.get("encoder_version", 3)),
     )
 
 
@@ -149,6 +156,25 @@ def load_model_state_dict_compatible(net: AzulNet, state_dict: dict[str, torch.T
     return migrated
 
 
+def warm_start_net(net: AzulNet, payload: dict) -> list[str]:
+    """Explicit weights-only initialization; never restore optimizer or replay."""
+    spec = checkpoint_net_spec(payload)
+    state = checkpoint_net_state_dict(payload)
+    if spec.hidden != net.hidden:
+        raise ValueError("Warm-start width must match")
+    if spec.arch == net.arch:
+        return load_model_state_dict_compatible(net, state)
+    if spec.arch != "attn" or net.arch != "source_attn":
+        raise ValueError(f"Unsupported warm start: {spec.arch} -> {net.arch}")
+    legacy = AzulNet(hidden=spec.hidden, arch="attn")
+    load_model_state_dict_compatible(legacy, state)
+    weights = {k: v for k, v in legacy.state_dict().items() if not k.startswith("policy_heads.")}
+    missing, unexpected = net.load_state_dict(weights, strict=False)
+    if unexpected or any(not k.startswith(("policy_heads.", "source_type.", "source_policy_norm.")) for k in missing):
+        raise ValueError(f"Invalid warm-start mapping: {missing}, {unexpected}")
+    return list(missing)
+
+
 def save_checkpoint(
     path: pathlib.Path | str,
     net: AzulNet,
@@ -156,6 +182,7 @@ def save_checkpoint(
     iteration: int = 0,
     config: Optional[dict] = None,
     buffer: Optional[ReplayBuffer] = None,
+    progress: dict | None = None,
 ) -> None:
     """Save a training checkpoint atomically."""
     path = pathlib.Path(path)
@@ -166,6 +193,12 @@ def save_checkpoint(
         "hidden": net.hidden,
         "arch": net.arch,
         "iteration": iteration,
+        "model_version": net.model_version,
+        "encoder_version": 3,
+        "trained_player_counts": [int(config["num_players"])] if config and "num_players" in config else getattr(net, "trained_player_counts", []),
+        "rng_state": capture_rng_state(),
+        "progress": progress or {},
+        "checkpoint_compression": "deflate" if buffer is not None else "stored",
     }
     if optimizer is not None:
         payload["optimizer_state_dict"] = optimizer.state_dict()
@@ -174,9 +207,39 @@ def save_checkpoint(
     if buffer is not None:
         payload["buffer"] = buffer.state_dict()
 
+    require_disk_space(path, 0 if buffer is not None else tensor_bytes(payload))
     tmp = path.with_suffix(".tmp")
-    torch.save(payload, tmp)
-    os.replace(tmp, path)
+    try:
+        if buffer is not None:
+            _write_compressed_checkpoint(payload, tmp)
+        else:
+            torch.save(payload, tmp)
+        with tmp.open("rb") as f:
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _write_compressed_checkpoint(payload: dict, path: pathlib.Path) -> None:
+    """Losslessly compress a standard PyTorch ZIP archive without a raw disk copy.
+
+    Sparse Azul observations and policy targets compress substantially. PyTorch's
+    regular loader reads DEFLATE records directly; mmap must not be used on them.
+    Serialization uses host RAM temporarily, retaining the old durable checkpoint
+    until the compressed replacement has been flushed and atomically installed.
+    """
+    with io.BytesIO() as raw:
+        torch.save(payload, raw)
+        raw.seek(0)
+        with zipfile.ZipFile(raw) as source, zipfile.ZipFile(
+            path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=1,
+        ) as target:
+            for member in source.infolist():
+                with source.open(member) as incoming, target.open(member.filename, 'w', force_zip64=True) as outgoing:
+                    while chunk := incoming.read(8 * 1024**2):
+                        require_disk_space(path, len(chunk))
+                        outgoing.write(chunk)
 
 
 def load_checkpoint_payload(
@@ -196,7 +259,8 @@ def load_net_from_checkpoint(
 ) -> tuple[AzulNet, dict]:
     payload = load_checkpoint_payload(path, map_location=map_location)
     spec = checkpoint_net_spec(payload)
-    net = AzulNet(hidden=spec.hidden, arch=spec.arch)
+    with torch.random.fork_rng(devices=[]):
+        net = AzulNet(hidden=spec.hidden, arch=spec.arch)
     load_model_state_dict_compatible(net, checkpoint_net_state_dict(payload))
     net = net.to(map_location)
     return net, payload
@@ -221,4 +285,6 @@ def load_checkpoint(
         optimizer.load_state_dict(payload["optimizer_state_dict"])
     if buffer is not None and "buffer" in payload and not migrated:
         buffer.load_state_dict(payload["buffer"])
+    if "rng_state" in payload and not migrated:
+        restore_rng_state(payload["rng_state"])
     return payload

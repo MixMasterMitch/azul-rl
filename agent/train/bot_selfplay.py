@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal, Optional
 
 import torch
 
-from ..env import batched_engine as BE
+from ..env import engine as BE
 from ..eval import bots as B
+from ..eval.heuristic_astra import HeuristicAstraBot
 from ..eval.heuristic_opus import HeuristicOpusBot
 from .batched_bot_policy import batched_heuristic_actions
 from ..net import encoder as ENC
 from ..net import model as M
 from ..search.gumbel_mcts import gumbel_root_act
+from ..search.config import SearchConfig
 from .instrumentation import PerfCounters, maybe_time, tensor_nbytes
 from .replay_buffer import ReplayBuffer
 from .selfplay import (
@@ -24,7 +27,7 @@ from .selfplay import (
     _select_finished_samples,
 )
 
-BotKind = Literal["heuristic", "heuristic_opus"]
+BotKind = Literal["heuristic", "heuristic_opus", "astra"]
 
 
 def run_bot_selfplay(
@@ -42,11 +45,20 @@ def run_bot_selfplay(
     dirichlet_mix: float = 0.25,
     q_scale: float = 10.0,
     opus_prob: float = 0.5,
+    astra_prob: float = 0.0,
     temperature_schedule: Optional[callable] = None,
     bot_policy: str = "batched",
+    bot_workers: int = 1,
     perf: PerfCounters | None = None,
+    search_backend: str = "one_ply",
 ) -> dict:
-    """Play vs rule bots; 50/50 heuristic vs heuristic_opus per game by default."""
+    """Play against rule/search bots, retaining positions from the main network only."""
+    if not 0.0 <= opus_prob <= 1.0 or not 0.0 <= astra_prob <= 1.0:
+        raise ValueError("bot probabilities must be in [0, 1]")
+    if opus_prob + astra_prob > 1.0:
+        raise ValueError("opus_prob + astra_prob must not exceed one")
+    if type(bot_workers) is not int or not 1 <= bot_workers <= 8:
+        raise ValueError("bot_workers must be an integer from one to eight")
     if temperature_schedule is None:
         temperature_schedule = _default_temperature_schedule
 
@@ -58,6 +70,7 @@ def run_bot_selfplay(
     use_batched_bot = bot_policy == "batched"
     heuristic_bot = B.HeuristicBot(seed=seed + 1) if not use_batched_bot else None
     opus_bot = HeuristicOpusBot(seed=seed + 2)
+    astra_bots = [HeuristicAstraBot(seed=seed + 10_000 + b) for b in range(num_games)]
 
     engine = BE.BatchedEngine(num_games, num_players, device_t, seed)
     storage_device = buffer.device
@@ -66,9 +79,14 @@ def run_bot_selfplay(
     bot_kind: list[BotKind] = []
     n_heuristic = 0
     n_opus = 0
+    n_astra = 0
     for b in range(num_games):
         main_seat[b] = rng.randint(0, num_players - 1)
-        if rng.random() < opus_prob:
+        draw = rng.random()
+        if draw < astra_prob:
+            bot_kind.append("astra")
+            n_astra += 1
+        elif draw < astra_prob + opus_prob:
             bot_kind.append("heuristic_opus")
             n_opus += 1
         else:
@@ -119,6 +137,7 @@ def run_bot_selfplay(
                         dirichlet_alpha=dirichlet_alpha,
                         dirichlet_mix=dirichlet_mix,
                         q_scale=q_scale,
+                        search_config=SearchConfig(backend=search_backend, num_simulations=num_sims, temperature=temp, q_scale=q_scale, dirichlet_alpha=dirichlet_alpha, dirichlet_mix=dirichlet_mix, reward_mode=reward_mode),
                         perf=perf,
                     )
             with maybe_time(perf, "bot_selfplay_record"):
@@ -173,22 +192,47 @@ def run_bot_selfplay(
                         dtype=torch.long,
                         device=device_t,
                     )
+                    astra_idx = torch.tensor(
+                        [
+                            b
+                            for b in bot_idx.tolist()
+                            if bot_kind[int(b)] == "astra"
+                        ],
+                        dtype=torch.long,
+                        device=device_t,
+                    )
                     opus_turn = torch.zeros_like(bot_turn)
                     if opus_idx.numel() > 0:
                         opus_turn[opus_idx] = True
-                    heuristic_turn = bot_turn & ~opus_turn
+                    astra_turn = torch.zeros_like(bot_turn)
+                    if astra_idx.numel() > 0:
+                        astra_turn[astra_idx] = True
+                    heuristic_turn = bot_turn & ~opus_turn & ~astra_turn
                     if heuristic_turn.any():
                         bot_actions = batched_heuristic_actions(engine)
                         actions = torch.where(heuristic_turn, bot_actions, actions)
-                    for bi in opus_idx.tolist():
-                        actions[int(bi)] = opus_bot.select_action(engine, int(bi))
+                    with maybe_time(perf, "bot_selfplay_opus_scalar"):
+                        for bi in opus_idx.tolist():
+                            actions[int(bi)] = opus_bot.select_action(engine, int(bi))
+                    if astra_idx.numel() > 0:
+                        astra_games = astra_idx.tolist()
+                        with maybe_time(perf, "bot_selfplay_astra_parallel"):
+                            def select_astra(game_idx: int) -> int:
+                                return astra_bots[game_idx].select_action(engine, game_idx)
+                            with ThreadPoolExecutor(max_workers=min(bot_workers, len(astra_games))) as pool:
+                                astra_actions = list(pool.map(select_astra, astra_games))
+                        actions.index_copy_(0, astra_idx, torch.tensor(astra_actions, device=device_t))
+                    if perf is not None:
+                        perf.add_count('bot_selfplay_opus_positions', opus_idx.numel())
+                        perf.add_count('bot_selfplay_astra_positions', astra_idx.numel())
                 else:
                     bot_idx = bot_turn.nonzero(as_tuple=True)[0]
                     if perf is not None:
                         perf.add_count("bot_selfplay_bot_positions", bot_idx.numel())
                     for bi in bot_idx.tolist():
                         b = int(bi)
-                        bot = opus_bot if bot_kind[b] == "heuristic_opus" else heuristic_bot
+                        bot = (opus_bot if bot_kind[b] == "heuristic_opus"
+                               else astra_bots[b] if bot_kind[b] == "astra" else heuristic_bot)
                         actions[b] = bot.select_action(engine, b)
 
         with maybe_time(perf, "bot_selfplay_env_step"):
@@ -213,6 +257,7 @@ def run_bot_selfplay(
             "wall_s": round(wall_s, 3),
             "bot_heuristic_games": n_heuristic,
             "bot_opus_games": n_opus,
+            "bot_astra_games": n_astra,
         }
 
     with maybe_time(perf, "bot_selfplay_concat"):
@@ -272,4 +317,5 @@ def run_bot_selfplay(
         "wall_s": round(wall_s, 3),
         "bot_heuristic_games": n_heuristic,
         "bot_opus_games": n_opus,
+        "bot_astra_games": n_astra,
     }

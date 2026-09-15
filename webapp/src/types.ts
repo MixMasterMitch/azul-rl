@@ -16,6 +16,14 @@ export interface PlayerState {
 
 export interface GameState {
   game_id: string;
+  revision: number;
+  status: 'active' | 'completed' | 'abandoned';
+  move_number: number;
+  can_abandon: boolean;
+  created_at: string;
+  updated_at: string;
+  winner_seats: number[];
+  opponent_names: string[];
   num_players: number;
   human_seat: number;
   opponents: string[];
@@ -28,6 +36,50 @@ export interface GameState {
   legal_actions: LegalAction[];
   ended: boolean;
   winner: number | null;
+}
+
+export interface Opponent {
+  id: string;
+  name: string;
+  supported_players: number[];
+  kind: string;
+  default: boolean;
+  rating?: number;
+  rating_2p?: number;
+  rating_3p?: number;
+  rating_4p?: number;
+}
+
+export interface Profile {
+  username: string;
+  games: number;
+  wins: number;
+  placed: boolean;
+  placement_wins_required: number;
+  rating: number | null;
+}
+
+export interface GameSummary {
+  game_id: string;
+  num_players: number;
+  human_seat: number;
+  status: GameState['status'];
+  revision: number;
+  updated_at: string;
+  scores: number[];
+  winner_seats: number[];
+  opponent_names: string[];
+}
+
+export interface LeaderboardEntry {
+  entity_id: string;
+  kind: 'human' | 'agent';
+  label: string;
+  rating?: number;
+  rating_2p?: number;
+  rating_3p?: number;
+  rating_4p?: number;
+  games?: number;
 }
 
 export const COLOR_NAMES = ['Blue', 'Yellow', 'Red', 'Black', 'White'];

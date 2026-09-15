@@ -12,7 +12,7 @@ from __future__ import annotations
 import random
 
 from ..env import actions as A
-from ..env import batched_engine as BE
+from ..env import engine as BE
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +146,8 @@ class _V13:
         self.rng = random.Random(seed)
 
     def select_action(self, engine: BE.BatchedEngine, game_idx: int) -> int:
+        if isinstance(engine, BE.GameEngine):
+            engine = engine.cpu_view()
         legal = engine.legal_action_mask()[game_idx].nonzero(as_tuple=True)[0].tolist()
         if not legal:
             return 0

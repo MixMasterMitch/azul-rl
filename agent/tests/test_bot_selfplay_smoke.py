@@ -36,7 +36,8 @@ def test_bot_selfplay_adds_samples() -> None:
     )
     assert metrics["games_total"] == 4
     assert metrics["samples_added"] > 0
-    assert metrics["bot_heuristic_games"] + metrics["bot_opus_games"] == 4
+    assert (metrics["bot_heuristic_games"] + metrics["bot_opus_games"]
+            + metrics["bot_astra_games"] == 4)
 
 
 def test_batched_bot_selfplay_uses_opus_bot_for_opus_games(monkeypatch) -> None:
@@ -76,3 +77,34 @@ def test_batched_bot_selfplay_uses_opus_bot_for_opus_games(monkeypatch) -> None:
 
     assert metrics["bot_opus_games"] == 1
     assert SpyOpusBot.calls > 0
+
+
+def test_batched_bot_selfplay_uses_parallel_astra_for_astra_games(monkeypatch) -> None:
+    import agent.train.bot_selfplay as BS
+
+    class SpyAstraBot:
+        calls = 0
+
+        def __init__(self, seed: int | None = None):
+            del seed
+
+        def select_action(self, engine: BE.BatchedEngine, game_idx: int) -> int:
+            SpyAstraBot.calls += 1
+            legal = engine.legal_action_mask()[game_idx].nonzero(as_tuple=True)[0].tolist()
+            return int(legal[0])
+
+    def fail_if_heuristic_used(engine: BE.BatchedEngine):
+        del engine
+        raise AssertionError("Astra-only bot self-play should not call batched heuristic")
+
+    monkeypatch.setattr(BS, "HeuristicAstraBot", SpyAstraBot)
+    monkeypatch.setattr(BS, "batched_heuristic_actions", fail_if_heuristic_used)
+
+    metrics = run_bot_selfplay(
+        AzulNet(hidden=64, arch="flat"), _buffer(capacity=100), num_games=1,
+        num_players=2, num_sims=1, max_turns=1, device="cpu", seed=0,
+        opus_prob=0.0, astra_prob=1.0, bot_policy="batched", bot_workers=2,
+    )
+
+    assert metrics["bot_astra_games"] == 1
+    assert SpyAstraBot.calls > 0

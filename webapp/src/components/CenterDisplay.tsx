@@ -55,6 +55,8 @@ export function CenterDisplay({
 
   return (
     <div
+      role="group"
+      aria-label="Center"
       style={{
         background: '#0f3460',
         borderRadius: '12px',

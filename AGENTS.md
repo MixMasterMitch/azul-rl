@@ -4,7 +4,7 @@
 
 This repo trains, evaluates, and serves an Azul-playing AI using Gumbel AlphaZero self-play. The system has four main subsystems:
 
-1. **Game engine** (`agent/env/`) — vectorized PyTorch Azul implementation
+1. **Game engine** (`agent/env/`) — batched Rust Azul simulator with PyTorch observations
 2. **Training** (`agent/train/`, `agent/search/`, `agent/net/`) — self-play + MCTS + neural net
 3. **Play server** (`play/`) — Flask API for human vs bot games
 4. **Frontend** (`webapp/`) — React/Vite SPA
@@ -12,7 +12,7 @@ This repo trains, evaluates, and serves an Azul-playing AI using Gumbel AlphaZer
 ## Architecture Decisions
 
 - **Single action space**: 300 flat actions (10 sources × 5 colors × 6 targets). Legality enforced via mask, not separate action types.
-- **Batched engine**: All training uses `BatchedEngine` with tensor state. Play uses `batch_size=1`.
+- **Batched engine**: All production modes use `GameEngine` (alias `BatchedEngine`) from `agent.env.engine`, with native Rust state and CPU/CUDA tensor observations. Play uses `batch_size=1`.
 - **Per-player-count heads**: The neural net has separate policy/value heads for 2p, 3p, and 4p games.
 - **Perspective encoding**: Network always sees the current player as seat 0.
 - **Bradley-Terry ratings**: Anchored to `random=1000`, fit via L-BFGS on full pairwise history.
@@ -27,8 +27,11 @@ This repo trains, evaluates, and serves an Azul-playing AI using Gumbel AlphaZer
 
 ### Game Engine
 - `single_engine.py` is the reference implementation (Python data structures)
-- `batched_engine.py` is the production engine (PyTorch tensors)
-- Both must agree on legal actions and game outcomes — test with parity tests
+- `engine.py` is the production adapter; `rust_engine.py` wraps the native `native/astra` full simulator
+- `batched_engine.py` remains an explicit PyTorch reference for parity tests/benchmarks
+- All engines must agree on legal actions and game outcomes; use identical draw uniforms for refill parity
+- Native tensor attributes are inspection snapshots, not writable state; use engine operations or validated snapshots
+- After native changes, rebuild with `python -m pip install ./native/astra`
 - Wall pattern: `wall_color(row, col) = (col - row) % 5`
 
 ### Neural Net
@@ -52,7 +55,8 @@ This repo trains, evaluates, and serves an Azul-playing AI using Gumbel AlphaZer
 | File | Purpose |
 |------|---------|
 | `agent/env/actions.py` | Action space definition + wall pattern |
-| `agent/env/batched_engine.py` | Production game engine |
+| `agent/env/engine.py` | Default Rust engine with CPU/CUDA observations |
+| `agent/env/batched_engine.py` | PyTorch reference engine |
 | `agent/env/single_engine.py` | Reference engine for testing |
 | `agent/net/model.py` | `AzulNet` neural network |
 | `agent/net/encoder.py` | State → feature tensors |
@@ -66,6 +70,7 @@ This repo trains, evaluates, and serves an Azul-playing AI using Gumbel AlphaZer
 
 ```bash
 source .venv/bin/activate
+python -m pip install ./native/astra      # build/install required native extension
 pytest                                    # run tests
 python -m agent.scripts.smoke_train       # verify training pipeline
 azul-train --device auto                  # full training

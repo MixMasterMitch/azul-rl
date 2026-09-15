@@ -1,0 +1,20 @@
+[package]
+name = "azul-astra"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+
+[lib]
+name = "azul_astra"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "=0.26.0", features = ["abi3-py311"] }
+
+[features]
+extension-module = ["pyo3/extension-module"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+

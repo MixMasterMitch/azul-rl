@@ -62,6 +62,9 @@ def encode_state(
     global_feat: (B, D_GLOBAL) float32
     source_feat: (B, NUM_SOURCES, D_SOURCE) float32
     """
+    native_encode = getattr(engine, "encode_state", None)
+    if native_encode is not None:
+        return native_encode()
     device = engine.device
     B = engine.batch_size
     nP = engine.num_players

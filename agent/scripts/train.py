@@ -13,7 +13,7 @@ def main() -> None:
     parser.add_argument("--num-players", type=int, default=2)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--hidden", type=int, default=256)
-    parser.add_argument("--arch", type=str, default="attn", choices=["attn", "flat"])
+    parser.add_argument("--arch", type=str, default="attn", choices=["attn", "flat", "source_attn"])
     parser.add_argument("--selfplay-games", type=int, default=1023)
     parser.add_argument("--selfplay-sims", type=int, default=32)
     parser.add_argument("--max-turns", type=int, default=200)
@@ -60,6 +60,8 @@ def main() -> None:
     )
     parser.add_argument("--eval-games", type=int, default=512)
     parser.add_argument("--eval-sims", type=int, default=32)
+    parser.add_argument("--eval-astra-fraction", type=float, default=0.125,
+                        help="Fraction of evaluation opponent seats using production Astra (0 disables).")
     amp_group = parser.add_mutually_exclusive_group()
     amp_group.add_argument("--use-amp", action="store_true", help="Enable AMP (overrides GPU defaults).")
     amp_group.add_argument("--no-amp", action="store_true", help="Disable AMP (overrides GPU defaults).")
@@ -90,6 +92,14 @@ def main() -> None:
     )
     parser.add_argument("--eval-workers", type=int, default=1, help="Parallel eval subprocesses.")
 
+    parser.add_argument("--seed", type=int, default=20260913)
+    parser.add_argument("--torch-threads", type=int, default=1)
+    parser.add_argument("--search-backend", choices=["one_ply", "gumbel_tree"], default="one_ply")
+    parser.add_argument("--eval-search-backend", choices=["one_ply", "gumbel_tree"], default="one_ply")
+    parser.add_argument("--eval-device", choices=["cpu", "cuda"], default="cpu")
+    parser.add_argument("--eval-q-scale", type=float, default=28.0)
+    parser.add_argument("--eval-temperature", type=float, default=.25)
+    parser.add_argument("--league-root", default="")
     args = parser.parse_args()
     explicit = set()
     if args.use_amp or args.no_amp:
@@ -131,12 +141,17 @@ def main() -> None:
         league_selfplay_every=args.league_selfplay_every,
         eval_games=args.eval_games,
         eval_sims=args.eval_sims,
+        eval_astra_fraction=args.eval_astra_fraction,
         use_amp=use_amp,
         compile_net=compile_net,
         profile_training=args.profile_training,
         profile_sync_cuda=args.profile_sync_cuda,
         bot_policy=args.bot_policy,
         eval_workers=args.eval_workers,
+        seed=args.seed, torch_threads=args.torch_threads, search_backend=args.search_backend,
+        eval_search_backend=args.eval_search_backend, eval_device=args.eval_device,
+        eval_q_scale=args.eval_q_scale, eval_temperature=args.eval_temperature,
+        league_root=args.league_root,
     )
 
     from ..train.device import resolve_device
@@ -145,7 +160,10 @@ def main() -> None:
     config = apply_device_defaults(config, device, explicit)
 
     run = Run(args.run_id, runs_root=args.runs_root or None)
-    run_loop(run, config, explicit_fields=explicit)
+    try:
+        run_loop(run, config, explicit_fields=explicit)
+    finally:
+        run.close()
 
 
 if __name__ == "__main__":

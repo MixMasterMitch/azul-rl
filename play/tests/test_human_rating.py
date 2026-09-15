@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 import pytest
 
 from agent.train import ranking as R
+from agent.train import rating_display as D
 from play.human_rating import HumanRatingStore
 
 
@@ -33,10 +35,11 @@ def test_4p_human_wins_expand_to_full_bt_wins_per_loser(tmp_path) -> None:
 
     assert store.data["games_4p"] == 10
     assert store.data["wins"] == 4
-    assert store.data["rating_4p"] == pytest.approx(3917.0, abs=5.0)
-    assert store.data["rating_4p"] > R.calibrate_rating(
-        R.DEFAULT_REFERENCE_ANCHORS_PER_PC[4]["heuristic_opus"], 4
-    )
+    # Four first places produce twelve pairwise wins; six losses give 2:1 odds.
+    expected_raw = R.DEFAULT_REFERENCE_ANCHORS_PER_PC[4]['heuristic_opus'] + 1000 * math.log10(2)
+    assert store.data['raw_rating_4p'] == pytest.approx(expected_raw, abs=1.0)
+    assert store.data['rating_4p'] == pytest.approx(D.to_display(
+        expected_raw, 4, D.scales_for(R.DEFAULT_REFERENCE_ANCHORS_PER_PC)), abs=5.0)
 
 
 def test_record_game_remains_2p_wrapper(tmp_path) -> None:

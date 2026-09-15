@@ -1,0 +1,17 @@
+{
+  "nodes": 4000,
+  "time_ms": 2000,
+  "depth": 32,
+  "width": 12,
+  "weights": {
+    "partial": 1,
+    "bonus": 1,
+    "adjacency": 0.25,
+    "line_lock": 0.65,
+    "initiative": 0.6,
+    "safety": 0.35,
+    "opponent": 1,
+    "urgency": 1,
+    "column_prior": 0
+  }
+}

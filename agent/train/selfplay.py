@@ -7,14 +7,20 @@ from typing import Callable, Optional
 
 import torch
 
-from ..env import batched_engine as BE
+from ..env import engine as BE
 from ..net import encoder as ENC
 from ..net import model as M
 from ..search.gumbel_mcts import gumbel_root_act
+from ..search.config import SearchConfig
 from .instrumentation import PerfCounters, maybe_time, tensor_nbytes
 from .replay_buffer import ReplayBuffer
 
-REWARD_MODES = ("binary", "score_scaled")
+from ..env.outcomes import (
+    REWARD_MODES, final_values as _final_rank_values,
+    final_values_binary as _final_rank_values_binary,
+    final_values_score_scaled as _final_rank_values_score_scaled,
+    _shared_victory_mask,
+)
 
 
 def _rotate_for_cp(
@@ -60,96 +66,6 @@ def _select_finished_samples(
     )
 
 
-def _final_rank_values_binary(
-    engine: BE.BatchedEngine, num_players: int
-) -> torch.Tensor:
-    """Winner +1, losers -1 per absolute seat."""
-    B = engine.batch_size
-    dev = engine.device
-    values = torch.full((B, BE.MAX_PLAYERS), -1.0, dtype=torch.float32, device=dev)
-    winners = engine.get_winners().to(torch.long)
-    ended = engine.ended
-    if ended.any():
-        rows = ended.nonzero(as_tuple=True)[0]
-        w = winners[rows]
-        single = w >= 0
-        if single.any():
-            r = rows[single]
-            values[r, w[single].long()] = 1.0
-        shared = w == BE.SHARED_VICTORY
-        if shared.any():
-            r = rows[shared]
-            tied = _shared_victory_mask(engine, r, num_players)
-            values[r, :num_players] = torch.where(
-                tied,
-                torch.ones_like(tied, dtype=torch.float32),
-                -torch.ones_like(tied, dtype=torch.float32),
-            )
-    return values
-
-
-def _shared_victory_mask(
-    engine: BE.BatchedEngine,
-    rows: torch.Tensor,
-    num_players: int,
-) -> torch.Tensor:
-    """Return active seats sharing the official win on ended tied rows."""
-    scores = engine.scores[rows, :num_players].to(torch.int32)
-    rows_complete = engine.wall[rows, :num_players].all(dim=-1).sum(dim=-1).to(torch.int32)
-    max_score = scores.max(dim=-1, keepdim=True).values
-    score_best = scores == max_score
-    rows_for_best = rows_complete.masked_fill(~score_best, -1)
-    max_rows = rows_for_best.max(dim=-1, keepdim=True).values
-    return score_best & (rows_complete == max_rows)
-
-
-def _final_rank_values_score_scaled(
-    engine: BE.BatchedEngine, num_players: int
-) -> torch.Tensor:
-    """Winner(s) +1; losers -1/(n-1) + (score/winner_score)^2."""
-    B = engine.batch_size
-    dev = engine.device
-    values = torch.full((B, BE.MAX_PLAYERS), -1.0, dtype=torch.float32, device=dev)
-    winners = engine.get_winners().to(torch.long)
-    scores = engine.scores[:, :num_players].float()
-    ended = engine.ended
-    if not ended.any():
-        return values
-
-    rows = ended.nonzero(as_tuple=True)[0]
-    w = winners[rows]
-    single = w >= 0
-    if single.any():
-        r = rows[single]
-        ws = w[single].long()
-        winner_score = scores[r].gather(1, ws.unsqueeze(1)).squeeze(1).clamp_min(1.0)
-        loss_base = -1.0 / max(num_players - 1, 1)
-        ratio = (scores[r] / winner_score.unsqueeze(1)).pow(2)
-        row_values = (loss_base + ratio).clamp(-1.0, 1.0)
-        row_values.scatter_(1, ws.unsqueeze(1), 1.0)
-        values[r, :num_players] = row_values
-    shared = w == BE.SHARED_VICTORY
-    if shared.any():
-        r = rows[shared]
-        tied = _shared_victory_mask(engine, r, num_players)
-        winner_score = scores[r].masked_fill(~tied, -1).max(dim=-1).values.clamp_min(1.0)
-        loss_base = -1.0 / max(num_players - 1, 1)
-        ratio = (scores[r] / winner_score.unsqueeze(1)).pow(2)
-        row_values = (loss_base + ratio).clamp(-1.0, 1.0)
-        values[r, :num_players] = torch.where(tied, torch.ones_like(row_values), row_values)
-    return values
-
-
-def _final_rank_values(
-    engine: BE.BatchedEngine, num_players: int, reward_mode: str
-) -> torch.Tensor:
-    if reward_mode == "binary":
-        return _final_rank_values_binary(engine, num_players)
-    if reward_mode == "score_scaled":
-        return _final_rank_values_score_scaled(engine, num_players)
-    raise ValueError(f"Unknown reward_mode={reward_mode!r}. Choose from {REWARD_MODES}.")
-
-
 def _default_temperature_schedule(step: int) -> float:
     if step < 30:
         return 1.0
@@ -177,6 +93,7 @@ def run_selfplay(
     progress_every_turns: int = 10,
     progress_every_s: float = 30.0,
     perf: PerfCounters | None = None,
+    search_backend: str = "one_ply",
 ) -> dict:
     """Run self-play games and collect training samples.
 
@@ -226,6 +143,7 @@ def run_selfplay(
                     dirichlet_alpha=dirichlet_alpha,
                     dirichlet_mix=dirichlet_mix,
                     q_scale=q_scale,
+                    search_config=SearchConfig(backend=search_backend, num_simulations=num_sims, temperature=temp, q_scale=q_scale, dirichlet_alpha=dirichlet_alpha, dirichlet_mix=dirichlet_mix, reward_mode=reward_mode),
                     precomputed=(global_feat, source_feat, legal_mask),
                     perf=perf,
                 )

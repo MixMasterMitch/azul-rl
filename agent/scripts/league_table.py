@@ -6,11 +6,39 @@ import argparse
 import json
 import pathlib
 
+from agent.train import ranking as R
+from agent.train import rating_display as D
+
+
+def display_entry(entry: dict, reference_anchors: dict, weights: dict[int, float]) -> dict:
+    """Read old stored calibration without rewriting the league or fitting again."""
+    converted = dict(entry)
+    total = weight_sum = 0.0
+    for pc in R.PLAYER_COUNTS:
+        key = f'rating_{pc}p'
+        if entry.get(key) is None:
+            continue
+        value = D.from_legacy_calibrated(entry[key], pc, reference_anchors)
+        converted[key] = value
+        weight = weights.get(pc, 0) or 1.0
+        total += value * weight
+        weight_sum += weight
+    if weight_sum:
+        converted['rating'] = total / weight_sum
+    else:
+        converted['rating'] = None  # No per-format evidence available for conversion.
+    return converted
+
+
+def format_rating(value: float | None) -> str:
+    return '—' if value is None else f'{value:.0f}'
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Azul league ratings")
     parser.add_argument("--league-dir", type=str, default="agent/runs/league")
     parser.add_argument("--top", type=int, default=15)
+    parser.add_argument('--legacy-ratings', action='store_true', help='Show the original stored league scale')
     args = parser.parse_args()
 
     manifest_path = pathlib.Path(args.league_dir) / "league.json"
@@ -22,13 +50,19 @@ def main() -> None:
     rating_system = manifest.get("rating_system", "unknown")
     entries = [e for e in manifest.get("entries", []) if e.get("active", True)]
     floating = manifest.get("floating_entities", {})
+    if not args.legacy_ratings:
+        references = R.reference_anchors_from_manifest(manifest)
+        weights = R._count_games_per_entity_per_pc(manifest.get('results', []))
+        entries = [display_entry(e, references, weights.get(f"ckpt:{e['idx']}", {})) for e in entries]
+        floating = {name: display_entry(e, references, weights.get(name, {})) for name, e in floating.items()}
 
     print(f"Rating system: {rating_system}")
-    print(f"Anchors: {manifest.get('anchors', {})}")
+    print(f"Display scale: {'legacy' if args.legacy_ratings else D.VERSION}")
+    print(f"Statistical anchors: {manifest.get('anchors', {})}")
 
     ranked = sorted(
         entries,
-        key=lambda e: float(e.get("rating", 0)),
+        key=lambda e: float(e.get("rating") or 0),
         reverse=True,
     )[: args.top]
 
@@ -37,20 +71,20 @@ def main() -> None:
     for i, e in enumerate(ranked, 1):
         print(
             f"{i:<3} {e.get('idx', '?'):<6} {str(e.get('tag', '')):<12} "
-            f"{e.get('rating', 0):>8.0f} "
-            f"{e.get('rating_2p', 0):>8.0f} "
-            f"{e.get('rating_3p', 0):>8.0f} "
-            f"{e.get('rating_4p', 0):>8.0f} "
+            f"{format_rating(e.get('rating')):>8} "
+            f"{format_rating(e.get('rating_2p')):>8} "
+            f"{format_rating(e.get('rating_3p')):>8} "
+            f"{format_rating(e.get('rating_4p')):>8} "
             f"{e.get('games', 0):>7}"
         )
 
     if floating:
         print("\nFloating entities:")
         for name, fe in sorted(
-            floating.items(), key=lambda x: float(x[1].get("rating", 0)), reverse=True
+            floating.items(), key=lambda x: float(x[1].get("rating") or 0), reverse=True
         ):
             print(
-                f"  {name:<20} rating={fe.get('rating', '?'):>6} "
+                f"  {name:<20} rating={format_rating(fe.get('rating')):>6} "
                 f"games={fe.get('games', 0)}"
             )
 

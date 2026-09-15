@@ -88,6 +88,7 @@ def step(
             "value_loss": float("nan"),
             "entropy": float("nan"),
             "skipped": 1.0,
+            "nonfinite_loss": 1.0,
         }
 
     with maybe_time(perf, "learner_zero_grad"):
@@ -104,6 +105,8 @@ def step(
             "value_loss": value_loss.item(),
             "entropy": entropy.item(),
             "skipped": 1.0,
+            "nonfinite_gradient": 1.0,
+            "grad_norm": grad_norm.item(),
         }
     with maybe_time(perf, "learner_optimizer_step"):
         optimizer.step()
@@ -114,6 +117,9 @@ def step(
         "value_loss": value_loss.item(),
         "entropy": entropy.item(),
         "skipped": 0.0,
+        "value_bias": (value_pred[:, :num_players] - target_v[:, :num_players]).mean().item(),
+        "value_sign_accuracy": ((value_pred[:, :num_players] >= 0) == (target_v[:, :num_players] >= 0)).float().mean().item(),
+        "grad_norm": grad_norm.item(),
     }
 
 

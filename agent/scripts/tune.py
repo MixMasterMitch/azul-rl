@@ -67,7 +67,9 @@ def ensure_selfplay_mha_limit(num_games: int, num_sims: int) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Azul RL Optuna hyperparameter tuning")
-    p.add_argument("--study-name", type=str, default="azul-tune")
+    p.add_argument("--study-name", type=str, default="azul-tune-observed-v1")
+    p.add_argument("--selection-metric", choices=["observed", "projected"], default="observed",
+                   help="Rank observed results by default; projected is for reproducing legacy studies.")
     p.add_argument("--n-trials", type=int, default=20)
     p.add_argument(
         "--iters-per-trial",
@@ -106,6 +108,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--narrow-ranges",
         action="store_true",
         help="Tighter ranges for quick/local smoke tuning.",
+    )
+    p.add_argument(
+        "--focused-ranges",
+        action="store_true",
+        help=(
+            "Phase-5 focused study: binary reward only, narrow LR/entropy, "
+            "tune bot_selfplay_opus_prob and training_cycle_length."
+        ),
     )
     p.add_argument(
         "--wide-ranges",
@@ -161,10 +171,26 @@ def build_parser() -> argparse.ArgumentParser:
 def define_search_space(
     trial: optuna.Trial,
     narrow: bool = False,
+    focused: bool = False,
     wide: bool = False,
 ) -> dict:
     """Sample hyperparameters; self-play batch is always FIXED_SELFPLAY_GAMES×SIMS."""
-    if wide:
+    if focused:
+        learner_batch = 256
+        learner_steps_per_iter = trial.suggest_int("learner_steps_per_iter", 64, 80)
+        lr = trial.suggest_float("lr", 7e-4, 1.5e-3, log=True)
+        weight_decay = trial.suggest_float("weight_decay", 5e-5, 3e-4, log=True)
+        entropy_bonus = trial.suggest_float("entropy_bonus", 0.005, 0.025)
+        dirichlet_alpha = trial.suggest_float("dirichlet_alpha", 0.25, 0.40)
+        dirichlet_mix = trial.suggest_float("dirichlet_mix", 0.40, 0.55)
+        q_scale = trial.suggest_float("q_scale", 18.0, 32.0)
+        time_discount = trial.suggest_float("time_discount", 0.998, 1.0)
+        reward_mode = "binary"
+        bot_selfplay_opus_prob = trial.suggest_float("bot_selfplay_opus_prob", 0.35, 0.75)
+        training_cycle_length = trial.suggest_categorical(
+            "training_cycle_length", [2, 4, 8]
+        )
+    elif wide:
         learner_batch = trial.suggest_categorical("learner_batch", [128, 256, 512])
         learner_steps_per_iter = trial.suggest_int("learner_steps_per_iter", 16, 128)
         lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
@@ -201,7 +227,7 @@ def define_search_space(
 
     replay_capacity = DEFAULT_REPLAY_CAPACITY
 
-    return {
+    params = {
         "selfplay_games": FIXED_SELFPLAY_GAMES,
         "selfplay_sims": FIXED_SELFPLAY_SIMS,
         "learner_batch": learner_batch,
@@ -216,6 +242,10 @@ def define_search_space(
         "time_discount": time_discount,
         "reward_mode": reward_mode,
     }
+    if focused:
+        params["bot_selfplay_opus_prob"] = bot_selfplay_opus_prob
+        params["training_cycle_length"] = training_cycle_length
+    return params
 
 
 def _winrate_to_match_result(
@@ -454,8 +484,6 @@ def _training_loop_config(
         "save_buffer_in_checkpoints": False,
         "eval_games": 0,
         "league_selfplay_every": 0,
-        "training_cycle_length": 4,
-        "bot_selfplay_opus_prob": 0.5,
         "selfplay_turns_per_player": 60,
         "checkpoint_every": 999_999,
         "max_wall_minutes": max_wall_minutes,
@@ -478,16 +506,20 @@ def trial_fn(
     study_baseline_rating: float,
     objective_name: str,
     narrow: bool,
+    focused: bool,
     wide: bool,
     rating_games: int,
     rating_sims: int,
     keep_eval_checkpoints: bool,
     device: str,
     league: League | None,
+    selection_metric: str = "observed",
 ) -> float:
     logger = logging.getLogger(__name__)
     try:
-        sampled = define_search_space(trial, narrow=narrow, wide=wide)
+        sampled = define_search_space(
+            trial, narrow=narrow, focused=focused, wide=wide
+        )
         ensure_selfplay_mha_limit(
             int(sampled["selfplay_games"]),
             int(sampled["selfplay_sims"]),
@@ -640,7 +672,8 @@ def trial_fn(
         )
         run.close()
         shutil.rmtree(trial_dir, ignore_errors=True)
-        return objective
+        trial.set_user_attr("selection_metric", selection_metric)
+        return curve_values[-1] if selection_metric == "observed" else objective
     except KeyboardInterrupt:
         raise
     except optuna.TrialPruned:
@@ -692,8 +725,14 @@ def main(argv: list[str] | None = None) -> int:
     from ..train.device import resolve_device
 
     device = resolve_device(args.device)
-    if args.narrow_ranges and args.wide_ranges:
-        print("error: use only one of --narrow-ranges or --wide-ranges", file=sys.stderr)
+    range_flags = sum(
+        1 for flag in (args.narrow_ranges, args.focused_ranges, args.wide_ranges) if flag
+    )
+    if range_flags > 1:
+        print(
+            "error: use only one of --narrow-ranges, --focused-ranges, or --wide-ranges",
+            file=sys.stderr,
+        )
         return 2
 
     base_cfg: dict = {
@@ -808,13 +847,19 @@ def main(argv: list[str] | None = None) -> int:
         study_baseline_rating=study_baseline_rating,
         objective_name=args.objective,
         narrow=args.narrow_ranges,
+        focused=args.focused_ranges,
         wide=args.wide_ranges,
         rating_games=args.rating_games,
         rating_sims=args.rating_sims,
         keep_eval_checkpoints=args.keep_eval_checkpoints,
+        selection_metric=args.selection_metric,
         device=device,
         league=league,
     )
+    prior_metric = study.user_attrs.get("selection_metric")
+    if len(study.trials) and (prior_metric or "projected") != args.selection_metric:
+        raise ValueError("Use a new study name when changing observed/projected selection")
+    study.set_user_attr("selection_metric", args.selection_metric)
     if remaining > 0:
         study.optimize(objective, n_trials=remaining)
 
@@ -826,6 +871,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.objective == OBJECTIVE_RATING_2P
             else f"logit-curve projected {args.objective} @ +{args.extrapolate_hours:.0f}h"
         )
+        if args.selection_metric == "observed":
+            objective_label = "observed final evaluation"
         print(
             f"\nTop trials ({objective_label}, "
             f"self-play {FIXED_SELFPLAY_GAMES}×{FIXED_SELFPLAY_SIMS}):"
