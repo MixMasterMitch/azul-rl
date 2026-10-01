@@ -40,8 +40,10 @@ This repo trains, evaluates, and serves an Azul-playing AI using Gumbel AlphaZer
 - Illegal actions are masked to `-1e9` before softmax
 
 ### Training
+- Read [the training journal](docs/training-journal.md) before proposing or starting experiments; it records tried configurations, results, caveats, and the retained baseline.
+- Update the journal when an experiment starts and when it completes, fails, or is stopped. Record run/artifact links, initialization, budgets, evaluation settings, uncertainty, and checkpoint decisions; distinguish plans and smoke checks from measured strength gains.
 - Self-play generates improved policies via Gumbel MCTS
-- Value targets: +1 sole winner, -1 losers; self-play skips replay samples from stall-capped games
+- Binary value targets: +1 sole winner, 0 shared winners, -1 losers; self-play skips replay samples from stall-capped games
 - Winner tiebreak (official): highest score → most complete horizontal rows → shared victory
 - Loop is resumable: `state.json` + checkpoint files
 
@@ -62,6 +64,8 @@ This repo trains, evaluates, and serves an Azul-playing AI using Gumbel AlphaZer
 | `agent/net/encoder.py` | State → feature tensors |
 | `agent/search/gumbel_mcts.py` | MCTS action selection |
 | `agent/train/loop.py` | Main training loop |
+| `docs/training-journal.md` | Training experiment history, results, and current baseline |
+| `docs/training-studies.json` | Historical Optuna trials, parameters, and recorded objectives |
 | `play/service.py` | Game orchestration |
 | `play/views.py` | API routes |
 | `infra/stack.py` | AWS CDK stack |

@@ -45,12 +45,14 @@ class AzulNet(nn.Module):
         num_heads: int = 4,
         dropout: float = 0.05,
         compile_forward: bool = False,
+        aux_score: bool = False,
     ):
         super().__init__()
         self.hidden = hidden
         self.arch = arch
         self.model_version = 2 if arch == "source_attn" else 1
         self._compiled = False
+        self.aux_score = aux_score
 
         self.pc_embed = nn.Embedding(3, hidden)
 
@@ -109,24 +111,38 @@ class AzulNet(nn.Module):
         else:
             raise ValueError(f"unsupported AzulNet arch: {arch}")
 
-        self.policy_heads = nn.ModuleDict({
-            str(i): nn.Sequential(
-                nn.Linear(hidden * (3 if arch == "source_attn" else 2), hidden),
-                nn.GELU(),
-                nn.Linear(hidden, 30 if arch == "source_attn" else NUM_ACTIONS),
-            )
-            for i in range(3)
-        })
-        self.value_heads = nn.ModuleDict({
-            str(i): nn.Sequential(
-                nn.Linear(hidden * 2, hidden), nn.GELU(), nn.Linear(hidden, BE.MAX_PLAYERS)
-            )
-            for i in range(3)
-        })
+        self.policy_heads = nn.ModuleDict(
+            {
+                str(i): nn.Sequential(
+                    nn.Linear(hidden * (3 if arch == "source_attn" else 2), hidden),
+                    nn.GELU(),
+                    nn.Linear(hidden, 30 if arch == "source_attn" else NUM_ACTIONS),
+                )
+                for i in range(3)
+            }
+        )
+        self.value_heads = nn.ModuleDict(
+            {
+                str(i): nn.Sequential(
+                    nn.Linear(hidden * 2, hidden),
+                    nn.GELU(),
+                    nn.Linear(hidden, BE.MAX_PLAYERS),
+                )
+                for i in range(3)
+            }
+        )
         if arch == "source_attn":
             for head in self.policy_heads.values():
                 nn.init.normal_(head[-1].weight, std=0.005)
                 nn.init.zeros_(head[-1].bias)
+
+        # Appended after ordinary initialization; inference never calls this head.
+        if aux_score:
+            self.score_head = nn.Sequential(
+                nn.Linear(hidden * 2, hidden), nn.GELU(), nn.Linear(hidden, 1)
+            )
+            nn.init.zeros_(self.score_head[-1].weight)
+            nn.init.zeros_(self.score_head[-1].bias)
 
         if compile_forward:
             self.enable_compile()
@@ -216,7 +232,9 @@ class AzulNet(nn.Module):
             # backward suffered catastrophic cancellation here (a captured batch
             # had gradient norm 249,065 versus 1.30 with explicit softmax). Keep
             # the explicit attention path used to train the original checkpoints.
-            h_attn, _ = self.attn(q, h_s, h_s, key_padding_mask=padding, need_weights=True)
+            h_attn, _ = self.attn(
+                q, h_s, h_s, key_padding_mask=padding, need_weights=True
+            )
             h_attn = self.post_attn(h_attn.squeeze(1))
             trunk_out = torch.cat([h_g, h_attn], dim=-1)
         else:
@@ -225,7 +243,12 @@ class AzulNet(nn.Module):
             )
             trunk_out = self.flat_trunk(flat_input)
             pc_emb = self.pc_embed(
-                torch.full((trunk_out.shape[0],), pc_idx, dtype=torch.long, device=trunk_out.device)
+                torch.full(
+                    (trunk_out.shape[0],),
+                    pc_idx,
+                    dtype=torch.long,
+                    device=trunk_out.device,
+                )
             )
             trunk_out[:, : self.hidden] = trunk_out[:, : self.hidden] + pc_emb
 
@@ -238,14 +261,44 @@ class AzulNet(nn.Module):
         num_players: int,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         trunk_out, pc_key, sources = self._trunk(global_feat, source_feat, num_players)
+        return self._policy_value(trunk_out, pc_key, sources)
+
+    def _policy_value(
+        self,
+        trunk_out: torch.Tensor,
+        pc_key: str,
+        sources: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         if self.arch == "source_attn":
             context = trunk_out.unsqueeze(1).expand(-1, ENC.NUM_SOURCES, -1)
             sources = self.source_policy_norm(sources)
-            policy_logits = self.policy_heads[pc_key](torch.cat([sources, context], dim=-1)).flatten(1)
+            policy_logits = self.policy_heads[pc_key](
+                torch.cat([sources, context], dim=-1)
+            ).flatten(1)
         else:
             policy_logits = self.policy_heads[pc_key](trunk_out)
         value = torch.tanh(self.value_heads[pc_key](trunk_out))
         return policy_logits, value
+
+    def forward_with_score(
+        self,
+        global_feat: torch.Tensor,
+        source_feat: torch.Tensor,
+        legal_mask: torch.Tensor,
+        num_players: int = 2,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Training-only normalized final score margin, sharing one trunk pass."""
+        if not self.aux_score or num_players != 2:
+            raise ValueError(
+                "Auxiliary score prediction requires a two-player score head"
+            )
+        trunk, key, sources = self._trunk(global_feat, source_feat, num_players)
+        policy, value = self._policy_value(trunk, key, sources)
+        return (
+            policy.masked_fill(~legal_mask, A.ILLEGAL_LOGIT),
+            value,
+            self.score_head(trunk).squeeze(-1),
+        )
 
     def _forward_value_impl(
         self,

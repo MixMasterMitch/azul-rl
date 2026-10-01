@@ -7,6 +7,7 @@ mod search;
 mod state;
 #[cfg(test)]
 mod tests;
+mod tree;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -133,5 +134,6 @@ fn azul_astra(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(transition, m)?)?;
     m.add_function(wrap_pyfunction!(resolve_round, m)?)?;
     m.add_function(wrap_pyfunction!(analyze, m)?)?;
+    m.add_function(wrap_pyfunction!(tree::gumbel_tree, m)?)?;
     Ok(())
 }

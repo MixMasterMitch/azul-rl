@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import Callable, Optional
 
 import torch
@@ -14,9 +15,13 @@ from ..search.gumbel_mcts import gumbel_root_act
 from ..search.config import SearchConfig
 from .instrumentation import PerfCounters, maybe_time, tensor_nbytes
 from .replay_buffer import ReplayBuffer
+from .score_targets import final_score_margins
+from .policy_surprise import policy_surprise
+from .reanalysis import SnapshotRecorder, finished_sample_mask
 
-from ..env.outcomes import (
-    REWARD_MODES, final_values as _final_rank_values,
+from ..env.outcomes import (  # noqa: F401 — preserve historical helper imports
+    REWARD_MODES,
+    final_values as _final_rank_values,
     final_values_binary as _final_rank_values_binary,
     final_values_score_scaled as _final_rank_values_score_scaled,
     _shared_victory_mask,
@@ -49,12 +54,9 @@ def _select_finished_samples(
     ended_mask: torch.Tensor,
 ) -> tuple[torch.Tensor, ...] | None:
     """Drop positions from stall-capped or degenerate games (no legal actions / non-finite targets)."""
-    finished = ended_mask[game_idx]
-    legal = legal_mask.any(dim=-1)
-    finite = torch.isfinite(policy_target).all(dim=-1) & torch.isfinite(value_target).all(
-        dim=-1
+    keep = finished_sample_mask(
+        legal_mask, policy_target, value_target, game_idx, ended_mask
     )
-    keep = finished & legal & finite
     if not keep.any():
         return None
     return (
@@ -94,6 +96,11 @@ def run_selfplay(
     progress_every_s: float = 30.0,
     perf: PerfCounters | None = None,
     search_backend: str = "one_ply",
+    search_tree_core: str = "python",
+    search_cpu_workers: int = 1,
+    search_inference_batch_size: int = 2048,
+    search_inference_wait_ms: float = 2.0,
+    search_template: SearchConfig | None = None,
 ) -> dict:
     """Run self-play games and collect training samples.
 
@@ -109,6 +116,7 @@ def run_selfplay(
 
     storage_device = buffer.device
 
+    snapshots = SnapshotRecorder(buffer.snapshot_capacity, seed)
     rec_global: list[torch.Tensor] = []
     rec_source: list[torch.Tensor] = []
     rec_legal: list[torch.Tensor] = []
@@ -143,7 +151,20 @@ def run_selfplay(
                     dirichlet_alpha=dirichlet_alpha,
                     dirichlet_mix=dirichlet_mix,
                     q_scale=q_scale,
-                    search_config=SearchConfig(backend=search_backend, num_simulations=num_sims, temperature=temp, q_scale=q_scale, dirichlet_alpha=dirichlet_alpha, dirichlet_mix=dirichlet_mix, reward_mode=reward_mode),
+                    search_config=replace(
+                        search_template or SearchConfig(),
+                        backend=search_backend,
+                        num_simulations=num_sims,
+                        tree_core=search_tree_core,
+                        temperature=temp,
+                        q_scale=q_scale,
+                        dirichlet_alpha=dirichlet_alpha,
+                        dirichlet_mix=dirichlet_mix,
+                        reward_mode=reward_mode,
+                        cpu_workers=search_cpu_workers,
+                        inference_batch_size=search_inference_batch_size,
+                        inference_wait_ms=search_inference_wait_ms,
+                    ),
                     precomputed=(global_feat, source_feat, legal_mask),
                     perf=perf,
                 )
@@ -177,7 +198,10 @@ def run_selfplay(
                     )
                     perf.add_count("selfplay_record_mb", record_bytes / (1024**2))
                     if device_t != storage_device:
-                        perf.add_count("selfplay_device_transfer_mb", record_bytes / (1024**2))
+                        perf.add_count(
+                            "selfplay_device_transfer_mb", record_bytes / (1024**2)
+                        )
+                snapshots.capture(engine, alive_idx)
                 rec_global.append(g_rec)
                 rec_source.append(s_rec)
                 rec_legal.append(l_rec)
@@ -199,7 +223,10 @@ def run_selfplay(
 
         if on_progress is not None:
             now = time.monotonic()
-            if turn % progress_every_turns == 0 or (now - last_progress_t) >= progress_every_s:
+            if (
+                turn % progress_every_turns == 0
+                or (now - last_progress_t) >= progress_every_s
+            ):
                 last_progress_t = now
                 alive_n = int((~engine.ended).sum().item())
                 finished_n = int(engine.ended.sum().item())
@@ -235,7 +262,9 @@ def run_selfplay(
         all_step = torch.cat(rec_step, dim=0)
 
     with maybe_time(perf, "selfplay_value_targets"):
-        final_values = _final_rank_values(engine, num_players, reward_mode).to(storage_device)
+        final_values = _final_rank_values(engine, num_players, reward_mode).to(
+            storage_device
+        )
         unfinished = ~ended_mask
         if unfinished.any():
             final_values[unfinished, :num_players] = -1.0
@@ -244,7 +273,9 @@ def run_selfplay(
         rotated = _rotate_for_cp(per_sample_values, all_cp.to(torch.long), num_players)
 
         finished_mask = ended_mask[all_gi]
-        ttg = (game_end_step[all_gi].to(torch.float32) - all_step.to(torch.float32)).clamp_min(0)
+        ttg = (
+            game_end_step[all_gi].to(torch.float32) - all_step.to(torch.float32)
+        ).clamp_min(0)
         discount = torch.pow(
             torch.tensor(time_discount, dtype=torch.float32, device=storage_device), ttg
         )
@@ -270,6 +301,22 @@ def run_selfplay(
                 l,
                 sanitize_policy_targets(p, l),
                 sanitize_value_targets(v),
+                policy_sims=num_sims,
+                policy_surprise=policy_surprise(
+                    net, buffer, g, s, l, p, num_sims, num_players
+                ),
+                score_margin=final_score_margins(
+                    engine.scores, all_gi, all_cp, num_players
+                )[
+                    finished_sample_mask(
+                        all_l, all_p, value_targets, all_gi, ended_mask
+                    )
+                ],
+                snapshots=snapshots.selected(
+                    finished_sample_mask(
+                        all_l, all_p, value_targets, all_gi, ended_mask
+                    )
+                ),
             )
             samples_added = int(g.shape[0])
 
@@ -281,7 +328,9 @@ def run_selfplay(
         "finished": int(ended_mask.sum().item()),
         "games_total": num_games,
         "wall_s": round(wall_s, 3),
-        "games_per_s": round(int(ended_mask.sum().item()) / wall_s, 2) if wall_s > 0 else 0.0,
+        "games_per_s": round(int(ended_mask.sum().item()) / wall_s, 2)
+        if wall_s > 0
+        else 0.0,
     }
 
     return metrics

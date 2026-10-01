@@ -171,6 +171,7 @@ impl Game {
             return values;
         }
         let winners = self.public.winners();
+        let shared = winners.iter().filter(|&&winner| winner).count() > 1;
         let winner_score = self.public.boards[..self.public.n]
             .iter()
             .map(|b| b.score)
@@ -180,7 +181,7 @@ impl Game {
         let loss_base = -1.0 / (self.public.n - 1) as f32;
         for p in 0..self.public.n {
             if winners[p] {
-                values[p] = 1.0;
+                values[p] = if shared { 0.0 } else { 1.0 };
             } else if score_scaled {
                 let ratio = self.public.boards[p].score as f32 / winner_score;
                 values[p] = (loss_base + ratio * ratio).clamp(-1.0, 1.0);

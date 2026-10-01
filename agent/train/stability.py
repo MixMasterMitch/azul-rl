@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pathlib
-from typing import Optional
 
 import torch
 
@@ -55,3 +54,4 @@ def restore_net_from_checkpoint(
 def reset_buffer(buffer: ReplayBuffer) -> None:
     buffer.size = 0
     buffer.pos = 0
+    buffer.snapshots.clear()

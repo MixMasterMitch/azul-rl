@@ -28,7 +28,11 @@ from ..train.instrumentation import PerfCounters, maybe_time
 NUM_ACTIONS = A.NUM_ACTIONS
 
 
-def _sample_gumbel(shape: tuple[int, ...], device: torch.device, generator: torch.Generator | None = None) -> torch.Tensor:
+def _sample_gumbel(
+    shape: tuple[int, ...],
+    device: torch.device,
+    generator: torch.Generator | None = None,
+) -> torch.Tensor:
     u = torch.rand(shape, device=device, generator=generator).clamp_min(1e-9)
     return -torch.log(-torch.log(u))
 
@@ -64,7 +68,9 @@ def _apply_dirichlet_noise(
 ) -> torch.Tensor:
     """Vectorized Dirichlet exploration noise over legal actions."""
     legal_f = legal_mask.to(prior_logits.dtype)
-    gamma = torch._standard_gamma(torch.full_like(legal_f, dirichlet_alpha), generator=generator)
+    gamma = torch._standard_gamma(
+        torch.full_like(legal_f, dirichlet_alpha), generator=generator
+    )
     gamma = gamma * legal_f
     gamma = gamma / gamma.sum(dim=-1, keepdim=True).clamp_min(1e-9)
     prior_probs = torch.softmax(
@@ -87,7 +93,9 @@ def _evaluate_root_children_batched(
     """Expand all root children in one B×K batched engine/value pass."""
     B = engine.batch_size
     K = topk_idx.shape[1]
-    q_values = torch.full((B, K), float("-inf"), dtype=torch.float32, device=engine.device)
+    q_values = torch.full(
+        (B, K), float("-inf"), dtype=torch.float32, device=engine.device
+    )
     if K == 0:
         return q_values
 
@@ -95,7 +103,9 @@ def _evaluate_root_children_batched(
         safe_topk = _safe_root_actions(topk_idx, legal)
         parent_cp = engine.current_player.to(torch.long).repeat_interleave(K)
     # Search chance samples never inherit the live game's future draws.
-    seed = int(torch.randint(2**31, (), device=engine.device, generator=generator).item())
+    seed = int(
+        torch.randint(2**31, (), device=engine.device, generator=generator).item()
+    )
     if isinstance(engine, GameEngine) and perf is None:
         child_engine = engine.expand(safe_topk, seed=seed)
     else:
@@ -109,8 +119,18 @@ def _evaluate_root_children_batched(
         with maybe_time(perf, "mcts_child_step"):
             child_engine.step(safe_topk.reshape(-1), finalize_round=False)
         if perf is not None:
-            refill = (child_engine.round_done() if isinstance(child_engine, GameEngine) else
-                      ((child_engine.factory_tiles.sum((1, 2)) + child_engine.center_tiles.sum(1)) == 0) & ~child_engine.ended)
+            refill = (
+                child_engine.round_done()
+                if isinstance(child_engine, GameEngine)
+                else (
+                    (
+                        child_engine.factory_tiles.sum((1, 2))
+                        + child_engine.center_tiles.sum(1)
+                    )
+                    == 0
+                )
+                & ~child_engine.ended
+            )
             perf.add_count("search_round_end_children", int(refill.sum()))
         with maybe_time(perf, "mcts_child_finalize"):
             _finalize_round_for_child_values(child_engine)
@@ -163,7 +183,20 @@ def gumbel_root_act(
     started = time.monotonic()
     if search_config is not None:
         if search_config.backend == "gumbel_tree":
+            if (
+                search_config.cpu_workers > 1
+                and isinstance(engine, GameEngine)
+                and engine.batch_size >= search_config.cpu_workers * 2
+            ):
+                from .parallel import parallel_tree_act
+
+                return parallel_tree_act(engine, net, search_config, perf=perf)
+            if search_config.tree_core == "rust":
+                from .native_tree import native_tree_act
+
+                return native_tree_act(engine, net, search_config, perf=perf)
             from .tree import gumbel_tree_act
+
             return gumbel_tree_act(engine, net, search_config, perf=perf)
         num_sims = search_config.num_simulations
         temperature = search_config.temperature
@@ -176,7 +209,9 @@ def gumbel_root_act(
         raise ValueError("num_sims must be positive")
     generator = None
     if search_config is not None and search_config.seed is not None:
-        generator = torch.Generator(device=engine.device).manual_seed(search_config.seed)
+        generator = torch.Generator(device=engine.device).manual_seed(
+            search_config.seed
+        )
     B = engine.batch_size
     device = engine.device
     nP = engine.num_players
@@ -198,7 +233,9 @@ def gumbel_root_act(
 
     if dirichlet_alpha > 0 and dirichlet_mix > 0:
         with maybe_time(perf, "mcts_dirichlet"):
-            prior = _apply_dirichlet_noise(prior, legal_mask, dirichlet_alpha, dirichlet_mix, generator)
+            prior = _apply_dirichlet_noise(
+                prior, legal_mask, dirichlet_alpha, dirichlet_mix, generator
+            )
 
     k = min(num_sims, NUM_ACTIONS)
     with maybe_time(perf, "mcts_gumbel_topk"):
@@ -215,24 +252,41 @@ def gumbel_root_act(
 
     if search_config is not None and search_config.move_deadline_s is not None:
         deadline = started + search_config.move_deadline_s
-        q_values = torch.full_like(top_vals, float('-inf'))
-        completed, largest_batch_s = 0, .005
+        q_values = torch.full_like(top_vals, float("-inf"))
+        completed, largest_batch_s = 0, 0.005
         for start in range(0, k, 64):
             if time.monotonic() + largest_batch_s >= deadline:
                 break
             before = time.monotonic()
             stop = min(start + 64, k)
-            q_values[:, start:stop] = _evaluate_root_children_batched(engine, net, top_idx[:, start:stop], legal_mask,
-                nP, perf=perf, reward_mode=reward_mode, generator=generator)
+            q_values[:, start:stop] = _evaluate_root_children_batched(
+                engine,
+                net,
+                top_idx[:, start:stop],
+                legal_mask,
+                nP,
+                perf=perf,
+                reward_mode=reward_mode,
+                generator=generator,
+            )
             completed = stop
             largest_batch_s = max(largest_batch_s, time.monotonic() - before)
         if perf is not None:
-            perf.add_count('one_ply_candidates', completed)
+            perf.add_count("one_ply_candidates", completed)
         if completed == 0:
             probs = torch.softmax(prior_logits, dim=1).masked_fill(~legal_mask, 0)
             return prior_logits.argmax(1), probs
     else:
-        q_values = _evaluate_root_children_batched(engine, net, top_idx, legal_mask, nP, perf=perf, reward_mode=reward_mode, generator=generator)
+        q_values = _evaluate_root_children_batched(
+            engine,
+            net,
+            top_idx,
+            legal_mask,
+            nP,
+            perf=perf,
+            reward_mode=reward_mode,
+            generator=generator,
+        )
 
     with maybe_time(perf, "mcts_select_action"):
         combined = top_vals + q_scale * q_values
@@ -244,14 +298,21 @@ def gumbel_root_act(
         actions = torch.where(has_legal, actions, fallback)
 
     with maybe_time(perf, "mcts_improved_policy"):
-        improved = torch.full((B, NUM_ACTIONS), neg_inf, dtype=torch.float32, device=device)
+        improved = torch.full(
+            (B, NUM_ACTIONS), neg_inf, dtype=torch.float32, device=device
+        )
         improved.scatter_(1, top_idx, prior.gather(1, top_idx) + q_scale * q_values)
 
         improved = improved.masked_fill(~legal_mask, neg_inf)
         improved = torch.softmax(improved, dim=-1)
-        improved = torch.where(has_legal.unsqueeze(-1), improved, torch.zeros_like(improved))
+        improved = torch.where(
+            has_legal.unsqueeze(-1), improved, torch.zeros_like(improved)
+        )
 
     if perf is not None:
         perf.add_count("search_positions", int(has_legal.sum()))
-        perf.add_count("search_policy_disagreements", int(((actions != prior_logits.argmax(1)) & has_legal).sum()))
+        perf.add_count(
+            "search_policy_disagreements",
+            int(((actions != prior_logits.argmax(1)) & has_legal).sum()),
+        )
     return actions, improved

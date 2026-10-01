@@ -13,8 +13,14 @@ import torch
 
 from ..net import encoder as ENC
 from ..net.model import AzulNet
+from ..env.outcomes import REWARD_SEMANTICS_VERSION
 from .replay_buffer import ReplayBuffer
-from .reproducibility import capture_rng_state, restore_rng_state, require_disk_space, tensor_bytes
+from .reproducibility import (
+    capture_rng_state,
+    restore_rng_state,
+    require_disk_space,
+    tensor_bytes,
+)
 
 
 _V2_D_GLOBAL = 171
@@ -42,6 +48,7 @@ class NetSpec:
     arch: str
     model_version: int = 1
     encoder_version: int = 3
+    aux_score: bool = False
 
 
 def checkpoint_net_spec(payload: dict) -> NetSpec:
@@ -50,6 +57,7 @@ def checkpoint_net_spec(payload: dict) -> NetSpec:
         arch=str(payload.get("arch", "attn")),
         model_version=int(payload.get("model_version", 1)),
         encoder_version=int(payload.get("encoder_version", 3)),
+        aux_score=bool(payload.get("aux_score", False)),
     )
 
 
@@ -80,13 +88,17 @@ def _v2_to_current_global_column_map() -> list[tuple[int, int]]:
                 mapping.append((old_has_color, new_fill + 1 + color))
 
         for idx in range(ENC.D_WALL_FLAT):
-            mapping.append((old_base + _V2_WALL_OFFSET + idx, new_base + _V3_WALL_OFFSET + idx))
+            mapping.append(
+                (old_base + _V2_WALL_OFFSET + idx, new_base + _V3_WALL_OFFSET + idx)
+            )
 
         mapping.append(
             (old_base + _V2_FLOOR_COUNT_OFFSET, new_base + _V3_FLOOR_COUNT_OFFSET)
         )
         mapping.append((old_base + _V2_SCORE_OFFSET, new_base + _V3_SCORE_OFFSET))
-        mapping.append((old_base + _V2_IS_CURRENT_OFFSET, new_base + _V3_IS_CURRENT_OFFSET))
+        mapping.append(
+            (old_base + _V2_IS_CURRENT_OFFSET, new_base + _V3_IS_CURRENT_OFFSET)
+        )
 
     return mapping
 
@@ -120,7 +132,9 @@ def _adapt_linear_input_weight(
     return adapted
 
 
-def load_model_state_dict_compatible(net: AzulNet, state_dict: dict[str, torch.Tensor]) -> list[str]:
+def load_model_state_dict_compatible(
+    net: AzulNet, state_dict: dict[str, torch.Tensor]
+) -> list[str]:
     """Load a checkpoint, migrating known old encoder input layouts when needed.
 
     The v3 encoder adds pattern-line color and floor-detail features. Old v2
@@ -163,14 +177,30 @@ def warm_start_net(net: AzulNet, payload: dict) -> list[str]:
     if spec.hidden != net.hidden:
         raise ValueError("Warm-start width must match")
     if spec.arch == net.arch:
+        if net.aux_score and not spec.aux_score:
+            state = {
+                **state,
+                **{
+                    k: v
+                    for k, v in net.state_dict().items()
+                    if k.startswith("score_head.")
+                },
+            }
         return load_model_state_dict_compatible(net, state)
     if spec.arch != "attn" or net.arch != "source_attn":
         raise ValueError(f"Unsupported warm start: {spec.arch} -> {net.arch}")
     legacy = AzulNet(hidden=spec.hidden, arch="attn")
     load_model_state_dict_compatible(legacy, state)
-    weights = {k: v for k, v in legacy.state_dict().items() if not k.startswith("policy_heads.")}
+    weights = {
+        k: v
+        for k, v in legacy.state_dict().items()
+        if not k.startswith("policy_heads.")
+    }
     missing, unexpected = net.load_state_dict(weights, strict=False)
-    if unexpected or any(not k.startswith(("policy_heads.", "source_type.", "source_policy_norm.")) for k in missing):
+    if unexpected or any(
+        not k.startswith(("policy_heads.", "source_type.", "source_policy_norm."))
+        for k in missing
+    ):
         raise ValueError(f"Invalid warm-start mapping: {missing}, {unexpected}")
     return list(missing)
 
@@ -183,19 +213,24 @@ def save_checkpoint(
     config: Optional[dict] = None,
     buffer: Optional[ReplayBuffer] = None,
     progress: dict | None = None,
+    distillation_state: dict | None = None,
 ) -> None:
     """Save a training checkpoint atomically."""
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     payload: dict = {
+        "reward_semantics_version": REWARD_SEMANTICS_VERSION,
         "model_state_dict": net.state_dict(),
         "hidden": net.hidden,
         "arch": net.arch,
+        "aux_score": net.aux_score,
         "iteration": iteration,
         "model_version": net.model_version,
         "encoder_version": 3,
-        "trained_player_counts": [int(config["num_players"])] if config and "num_players" in config else getattr(net, "trained_player_counts", []),
+        "trained_player_counts": [int(config["num_players"])]
+        if config and "num_players" in config
+        else getattr(net, "trained_player_counts", []),
         "rng_state": capture_rng_state(),
         "progress": progress or {},
         "checkpoint_compression": "deflate" if buffer is not None else "stored",
@@ -206,11 +241,25 @@ def save_checkpoint(
         payload["config"] = config
     if buffer is not None:
         payload["buffer"] = buffer.state_dict()
+    if distillation_state is not None:
+        payload["distillation"] = distillation_state
 
-    require_disk_space(path, 0 if buffer is not None else tensor_bytes(payload))
+    save_checkpoint_payload(path, payload)
+
+
+def save_checkpoint_payload(path: pathlib.Path | str, payload: dict) -> None:
+    """Atomically save complete state without regenerating RNG or optimizer data.
+
+    Used when forking an explicitly declared experiment from a durable resume.
+    Ordinary resumes still enforce immutable training settings in the loop.
+    """
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    compressed = "buffer" in payload
+    require_disk_space(path, 0 if compressed else tensor_bytes(payload))
     tmp = path.with_suffix(".tmp")
     try:
-        if buffer is not None:
+        if compressed:
             _write_compressed_checkpoint(payload, tmp)
         else:
             torch.save(payload, tmp)
@@ -232,11 +281,25 @@ def _write_compressed_checkpoint(payload: dict, path: pathlib.Path) -> None:
     with io.BytesIO() as raw:
         torch.save(payload, raw)
         raw.seek(0)
-        with zipfile.ZipFile(raw) as source, zipfile.ZipFile(
-            path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=1,
-        ) as target:
+        level = (
+            6
+            if payload.get("config", {}).get("bounded_checkpoint_storage", False)
+            else 1
+        )
+        with (
+            zipfile.ZipFile(raw) as source,
+            zipfile.ZipFile(
+                path,
+                "w",
+                compression=zipfile.ZIP_DEFLATED,
+                compresslevel=level,
+            ) as target,
+        ):
             for member in source.infolist():
-                with source.open(member) as incoming, target.open(member.filename, 'w', force_zip64=True) as outgoing:
+                with (
+                    source.open(member) as incoming,
+                    target.open(member.filename, "w", force_zip64=True) as outgoing,
+                ):
                     while chunk := incoming.read(8 * 1024**2):
                         require_disk_space(path, len(chunk))
                         outgoing.write(chunk)
@@ -253,6 +316,30 @@ def load_checkpoint_payload(
     return payload
 
 
+def checkpoint_launch_headroom(
+    path: pathlib.Path | None, replay_bytes: int, *, bounded_storage: bool = False
+) -> int:
+    """Use observed compressed size for a resume; new runs reserve raw replay size.
+
+    Default to 1 GiB or twice the existing archive for growth. A campaign with
+    an explicitly bounded retention plan can reserve 125% of its observed
+    archive instead; atomic writes still enforce the separate 256 MiB reserve.
+    """
+    if path is not None and path.exists() and replay_bytes:
+        with zipfile.ZipFile(path) as archive:
+            members = archive.infolist()
+            if members and all(
+                member.compress_type == zipfile.ZIP_DEFLATED for member in members
+            ):
+                if bounded_storage:
+                    return min(
+                        replay_bytes,
+                        max(256 * 1024**2, int(1.25 * path.stat().st_size)),
+                    )
+                return min(replay_bytes, max(1024**3, 2 * path.stat().st_size))
+    return replay_bytes
+
+
 def load_net_from_checkpoint(
     path: pathlib.Path | str,
     map_location: str | torch.device = "cpu",
@@ -260,7 +347,7 @@ def load_net_from_checkpoint(
     payload = load_checkpoint_payload(path, map_location=map_location)
     spec = checkpoint_net_spec(payload)
     with torch.random.fork_rng(devices=[]):
-        net = AzulNet(hidden=spec.hidden, arch=spec.arch)
+        net = AzulNet(hidden=spec.hidden, arch=spec.arch, aux_score=spec.aux_score)
     load_model_state_dict_compatible(net, checkpoint_net_state_dict(payload))
     net = net.to(map_location)
     return net, payload
@@ -276,7 +363,11 @@ def load_checkpoint(
     """Load weights (and optionally optimizer/buffer) into existing objects."""
     payload = load_checkpoint_payload(path, map_location=map_location)
     spec = checkpoint_net_spec(payload)
-    if spec.arch != net.arch or spec.hidden != net.hidden:
+    if (
+        spec.arch != net.arch
+        or spec.hidden != net.hidden
+        or spec.aux_score != net.aux_score
+    ):
         raise ValueError(
             f"checkpoint arch/hidden mismatch: ckpt={spec}, net={net.arch}/{net.hidden}"
         )

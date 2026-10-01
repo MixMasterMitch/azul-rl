@@ -145,13 +145,14 @@ class League:
             json.dump(self.manifest, f, indent=2)
         os.replace(tmp, self.manifest_path)
 
-    def _entry_strength_key(self, entry: dict) -> tuple[float, float, float, float, float]:
+    def _entry_strength_key(
+        self, entry: dict
+    ) -> tuple[float, float, float, float, float]:
         return (
             self._entry_rating(entry),
             float(entry.get("score_hint", 0.0)),
-            float(entry.get("winrate_vs_heuristic", 0.0)) + 0.5 * float(
-                entry.get("ties_vs_heuristic", 0.0)
-            ),
+            float(entry.get("winrate_vs_heuristic", 0.0))
+            + 0.5 * float(entry.get("ties_vs_heuristic", 0.0)),
             float(entry.get("finished_vs_heuristic", 0.0)),
             -float(
                 entry.get(
@@ -177,7 +178,9 @@ class League:
     def _record_entry_baselines_from_metadata(self, entry: dict) -> bool:
         entity = self._entry_entity_id(int(entry["idx"]))
         wrote_any = False
-        use_rank = "rank_winrate_vs_random" in entry or "rank_winrate_vs_heuristic" in entry
+        use_rank = (
+            "rank_winrate_vs_random" in entry or "rank_winrate_vs_heuristic" in entry
+        )
         prefix = "rank_" if use_rank else ""
         total_games = 512 if use_rank else 256
         for opponent in _BASELINE_BOTS:
@@ -188,7 +191,9 @@ class League:
             wins = int(round(total_games * float(entry.get(winrate_key, 0.0))))
             ties = int(round(total_games * float(entry.get(tie_key, 0.0))))
             losses = max(int(total_games) - wins - ties, 0)
-            self.record_result(entity, opponent, float(wins), float(losses), float(ties))
+            self.record_result(
+                entity, opponent, float(wins), float(losses), float(ties)
+            )
             wrote_any = True
         return wrote_any
 
@@ -255,7 +260,8 @@ class League:
         metadata: Optional[dict] = None,
     ) -> dict:
         next_idx = (
-            max((int(entry["idx"]) for entry in self.manifest["entries"]), default=-1) + 1
+            max((int(entry["idx"]) for entry in self.manifest["entries"]), default=-1)
+            + 1
         )
         idx = next_idx
         rel_name = f"ckpt_{idx:05d}_{tag}.pt" if tag else f"ckpt_{idx:05d}.pt"
@@ -307,7 +313,9 @@ class League:
         cached = self._net_cache.get(key)
         if cached is not None:
             return cached
-        net, _ = CK.load_net_from_checkpoint(pathlib.Path(path_str), map_location=device_t)
+        net, _ = CK.load_net_from_checkpoint(
+            pathlib.Path(path_str), map_location=device_t
+        )
         net = net.to(device_t)
         net.eval()
         self._net_cache[key] = net
@@ -317,14 +325,53 @@ class League:
         """Backward-compatible alias for :meth:`load_cached_net`."""
         return self.load_cached_net(path, device=device)
 
-    def sample_opponent(self, rng: Optional[random.Random] = None) -> Optional[dict]:
+    def sample_opponent(
+        self,
+        rng: Optional[random.Random] = None,
+        sampling: str = "weighted",
+        num_players: int = 2,
+    ) -> Optional[dict]:
+        if sampling not in {"weighted", "mixed"}:
+            raise ValueError("league sampling must be weighted or mixed")
         if not self.manifest["entries"]:
             return None
         if rng is None:
             rng = random.Random()
-        entries = [e for e in self.manifest["entries"] if self._entry_available(e)]
+        entries = [
+            e
+            for e in self.manifest["entries"]
+            if e.get("active", True) and self._entry_available(e)
+        ]
         if not entries:
             return None
+        if sampling == "mixed":
+            # Equal chances of historical diversity, recent play, and strong play.
+            group = rng.randrange(3)
+            if group == 1:
+                entries = entries[-max(1, self.keep_recent) :]
+            elif group == 2:
+                minimum = int(self.manifest.get("measured_strong_min_games", 0))
+                if minimum:
+                    measured = [
+                        e
+                        for e in entries
+                        if e.get("games", 0) >= minimum
+                        and f"rating_{num_players}p" in e
+                    ]
+                    if not measured:
+                        return rng.choice(entries)
+                    entries = measured
+                    rng.shuffle(
+                        entries
+                    )  # Equal measured ratings must not favor insertion order.
+                entries = sorted(
+                    entries,
+                    key=lambda e: float(
+                        e.get(f"rating_{num_players}p", self._entry_rating(e))
+                    ),
+                    reverse=True,
+                )[:4]
+            return rng.choice(entries)
         weights = []
         for i, e in enumerate(entries):
             recency = 1.0 + i
@@ -340,8 +387,13 @@ class League:
                 return entries[i]
         return entries[-1]
 
-    def sample_opponent_path(self, rng: Optional[random.Random] = None) -> Optional[str]:
-        entry = self.sample_opponent(rng)
+    def sample_opponent_path(
+        self,
+        rng: Optional[random.Random] = None,
+        sampling: str = "weighted",
+        num_players: int = 2,
+    ) -> Optional[str]:
+        entry = self.sample_opponent(rng, sampling=sampling, num_players=num_players)
         if entry is None:
             return None
         return str(self._resolve_path(entry["path"]))
@@ -353,7 +405,9 @@ class League:
             return None
         return max(entries, key=self._entry_strength_key)
 
-    def rating_candidates(self, exclude_idx: int | None = None, limit: int = 4) -> List[dict]:
+    def rating_candidates(
+        self, exclude_idx: int | None = None, limit: int = 4
+    ) -> List[dict]:
         if limit <= 0:
             return []
         entries = [
@@ -419,9 +473,13 @@ class League:
             wins = int(round(total_games * float(row.get(winrate_key, 0.0))))
             ties = int(round(total_games * float(row.get(tie_key, 0.0))))
             losses = max(total_games - wins - ties, 0)
-            self.record_result(entity, opponent, float(wins), float(losses), float(ties))
+            self.record_result(
+                entity, opponent, float(wins), float(losses), float(ties)
+            )
 
-    def recompute_ratings(self, extra_anchors: dict[str, float] | None = None) -> dict[str, float]:
+    def recompute_ratings(
+        self, extra_anchors: dict[str, float] | None = None
+    ) -> dict[str, float]:
         initial = {
             self._entry_entity_id(int(entry["idx"])): self._entry_rating(entry)
             for entry in self.manifest["entries"]
@@ -469,7 +527,9 @@ class League:
                         entry[f"rating_{pc}p"] = round(data[cal_key])
             _record_anchor_winrates(entry, entity, self.manifest["results"])
 
-        entry_entities = {self._entry_entity_id(int(e["idx"])) for e in self.manifest["entries"]}
+        entry_entities = {
+            self._entry_entity_id(int(e["idx"])) for e in self.manifest["entries"]
+        }
         anchor_entities = set(self.manifest["anchors"])
         floating: dict[str, dict] = {}
         for entity, data in ratings_data.items():

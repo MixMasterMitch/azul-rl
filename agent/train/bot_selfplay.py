@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 import time
+from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 from typing import Literal, Optional
 
@@ -20,6 +21,9 @@ from ..search.gumbel_mcts import gumbel_root_act
 from ..search.config import SearchConfig
 from .instrumentation import PerfCounters, maybe_time, tensor_nbytes
 from .replay_buffer import ReplayBuffer
+from .score_targets import final_score_margins
+from .policy_surprise import policy_surprise
+from .reanalysis import SnapshotRecorder, finished_sample_mask
 from .selfplay import (
     _default_temperature_schedule,
     _final_rank_values,
@@ -51,6 +55,11 @@ def run_bot_selfplay(
     bot_workers: int = 1,
     perf: PerfCounters | None = None,
     search_backend: str = "one_ply",
+    search_tree_core: str = "python",
+    search_cpu_workers: int = 1,
+    search_inference_batch_size: int = 2048,
+    search_inference_wait_ms: float = 2.0,
+    search_template: SearchConfig | None = None,
 ) -> dict:
     """Play against rule/search bots, retaining positions from the main network only."""
     if not 0.0 <= opus_prob <= 1.0 or not 0.0 <= astra_prob <= 1.0:
@@ -93,6 +102,7 @@ def run_bot_selfplay(
             bot_kind.append("heuristic")
             n_heuristic += 1
 
+    snapshots = SnapshotRecorder(buffer.snapshot_capacity, seed)
     rec_global: list[torch.Tensor] = []
     rec_source: list[torch.Tensor] = []
     rec_legal: list[torch.Tensor] = []
@@ -137,7 +147,20 @@ def run_bot_selfplay(
                         dirichlet_alpha=dirichlet_alpha,
                         dirichlet_mix=dirichlet_mix,
                         q_scale=q_scale,
-                        search_config=SearchConfig(backend=search_backend, num_simulations=num_sims, temperature=temp, q_scale=q_scale, dirichlet_alpha=dirichlet_alpha, dirichlet_mix=dirichlet_mix, reward_mode=reward_mode),
+                        search_config=replace(
+                            search_template or SearchConfig(),
+                            backend=search_backend,
+                            num_simulations=num_sims,
+                            tree_core=search_tree_core,
+                            temperature=temp,
+                            q_scale=q_scale,
+                            dirichlet_alpha=dirichlet_alpha,
+                            dirichlet_mix=dirichlet_mix,
+                            reward_mode=reward_mode,
+                            cpu_workers=search_cpu_workers,
+                            inference_batch_size=search_inference_batch_size,
+                            inference_wait_ms=search_inference_wait_ms,
+                        ),
                         perf=perf,
                     )
             with maybe_time(perf, "bot_selfplay_record"):
@@ -167,7 +190,10 @@ def run_bot_selfplay(
                     )
                     perf.add_count("bot_selfplay_record_mb", record_bytes / (1024**2))
                     if device_t != storage_device:
-                        perf.add_count("bot_selfplay_device_transfer_mb", record_bytes / (1024**2))
+                        perf.add_count(
+                            "bot_selfplay_device_transfer_mb", record_bytes / (1024**2)
+                        )
+                snapshots.capture(engine, main_idx)
                 rec_global.append(g_rec)
                 rec_source.append(s_rec)
                 rec_legal.append(l_rec)
@@ -181,7 +207,9 @@ def run_bot_selfplay(
             with maybe_time(perf, "bot_selfplay_bot_policy"):
                 if use_batched_bot:
                     if perf is not None:
-                        perf.add_count("bot_selfplay_bot_positions", int(bot_turn.sum().item()))
+                        perf.add_count(
+                            "bot_selfplay_bot_positions", int(bot_turn.sum().item())
+                        )
                     bot_idx = bot_turn.nonzero(as_tuple=True)[0]
                     opus_idx = torch.tensor(
                         [
@@ -193,11 +221,7 @@ def run_bot_selfplay(
                         device=device_t,
                     )
                     astra_idx = torch.tensor(
-                        [
-                            b
-                            for b in bot_idx.tolist()
-                            if bot_kind[int(b)] == "astra"
-                        ],
+                        [b for b in bot_idx.tolist() if bot_kind[int(b)] == "astra"],
                         dtype=torch.long,
                         device=device_t,
                     )
@@ -217,22 +241,39 @@ def run_bot_selfplay(
                     if astra_idx.numel() > 0:
                         astra_games = astra_idx.tolist()
                         with maybe_time(perf, "bot_selfplay_astra_parallel"):
+
                             def select_astra(game_idx: int) -> int:
-                                return astra_bots[game_idx].select_action(engine, game_idx)
-                            with ThreadPoolExecutor(max_workers=min(bot_workers, len(astra_games))) as pool:
-                                astra_actions = list(pool.map(select_astra, astra_games))
-                        actions.index_copy_(0, astra_idx, torch.tensor(astra_actions, device=device_t))
+                                return astra_bots[game_idx].select_action(
+                                    engine, game_idx
+                                )
+
+                            with ThreadPoolExecutor(
+                                max_workers=min(bot_workers, len(astra_games))
+                            ) as pool:
+                                astra_actions = list(
+                                    pool.map(select_astra, astra_games)
+                                )
+                        actions.index_copy_(
+                            0, astra_idx, torch.tensor(astra_actions, device=device_t)
+                        )
                     if perf is not None:
-                        perf.add_count('bot_selfplay_opus_positions', opus_idx.numel())
-                        perf.add_count('bot_selfplay_astra_positions', astra_idx.numel())
+                        perf.add_count("bot_selfplay_opus_positions", opus_idx.numel())
+                        perf.add_count(
+                            "bot_selfplay_astra_positions", astra_idx.numel()
+                        )
                 else:
                     bot_idx = bot_turn.nonzero(as_tuple=True)[0]
                     if perf is not None:
                         perf.add_count("bot_selfplay_bot_positions", bot_idx.numel())
                     for bi in bot_idx.tolist():
                         b = int(bi)
-                        bot = (opus_bot if bot_kind[b] == "heuristic_opus"
-                               else astra_bots[b] if bot_kind[b] == "astra" else heuristic_bot)
+                        bot = (
+                            opus_bot
+                            if bot_kind[b] == "heuristic_opus"
+                            else astra_bots[b]
+                            if bot_kind[b] == "astra"
+                            else heuristic_bot
+                        )
                         actions[b] = bot.select_action(engine, b)
 
         with maybe_time(perf, "bot_selfplay_env_step"):
@@ -270,7 +311,9 @@ def run_bot_selfplay(
         all_step = torch.cat(rec_step, dim=0)
 
     with maybe_time(perf, "bot_selfplay_value_targets"):
-        final_values = _final_rank_values(engine, num_players, reward_mode).to(storage_device)
+        final_values = _final_rank_values(engine, num_players, reward_mode).to(
+            storage_device
+        )
         unfinished = ~ended_mask
         if unfinished.any():
             final_values[unfinished, :num_players] = -1.0
@@ -278,7 +321,9 @@ def run_bot_selfplay(
         per_sample = final_values[all_gi]
         rotated = _rotate_for_cp(per_sample, all_cp.to(torch.long), num_players)
         finished_mask = ended_mask[all_gi]
-        ttg = (game_end_step[all_gi].to(torch.float32) - all_step.to(torch.float32)).clamp_min(0)
+        ttg = (
+            game_end_step[all_gi].to(torch.float32) - all_step.to(torch.float32)
+        ).clamp_min(0)
         discount = torch.pow(
             torch.tensor(time_discount, dtype=torch.float32, device=storage_device), ttg
         )
@@ -304,6 +349,22 @@ def run_bot_selfplay(
                 l,
                 sanitize_policy_targets(p, l),
                 sanitize_value_targets(v),
+                policy_sims=num_sims,
+                policy_surprise=policy_surprise(
+                    net, buffer, g, s, l, p, num_sims, num_players
+                ),
+                score_margin=final_score_margins(
+                    engine.scores, all_gi, all_cp, num_players
+                )[
+                    finished_sample_mask(
+                        all_l, all_p, value_targets, all_gi, ended_mask
+                    )
+                ],
+                snapshots=snapshots.selected(
+                    finished_sample_mask(
+                        all_l, all_p, value_targets, all_gi, ended_mask
+                    )
+                ),
             )
             samples_added = int(g.shape[0])
 

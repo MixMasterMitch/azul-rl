@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 import time
+from dataclasses import replace
 from typing import Optional
 
 import torch
@@ -16,8 +17,10 @@ from ..search.config import SearchConfig
 from .instrumentation import PerfCounters, maybe_time, tensor_nbytes
 from .league import League
 from .replay_buffer import ReplayBuffer
+from .score_targets import final_score_margins
+from .policy_surprise import policy_surprise
+from .reanalysis import SnapshotRecorder, finished_sample_mask
 from .selfplay import (
-    REWARD_MODES,
     _final_rank_values,
     _rotate_for_cp,
     _select_finished_samples,
@@ -38,6 +41,8 @@ def run_league_selfplay(
     league_prob: float = 0.5,
     time_discount: float = 1.0,
     opponent_sims: int = 4,
+    opponent_search: SearchConfig | None = None,
+    opponent_sampling: str = "weighted",
     reward_mode: str = "score_scaled",
     dirichlet_alpha: float = 0.3,
     dirichlet_mix: float = 0.25,
@@ -45,6 +50,11 @@ def run_league_selfplay(
     temperature_schedule: Optional[callable] = None,
     perf: PerfCounters | None = None,
     search_backend: str = "one_ply",
+    search_tree_core: str = "python",
+    search_cpu_workers: int = 1,
+    search_inference_batch_size: int = 2048,
+    search_inference_wait_ms: float = 2.0,
+    search_template: SearchConfig | None = None,
 ) -> dict:
     """Play games vs league checkpoints; buffer only main-agent positions."""
     if temperature_schedule is None:
@@ -52,7 +62,13 @@ def run_league_selfplay(
 
     device_t = torch.device(device)
     rng = random.Random(seed)
-    opp_path = league.sample_opponent_path(rng)
+    opp_path = (
+        league.sample_opponent_path(rng)
+        if opponent_sampling == "weighted"
+        else league.sample_opponent_path(
+            rng, sampling=opponent_sampling, num_players=num_players
+        )
+    )
     if opp_path is None:
         from .selfplay import run_selfplay
 
@@ -68,6 +84,11 @@ def run_league_selfplay(
             time_discount=time_discount,
             reward_mode=reward_mode,
             search_backend=search_backend,
+            search_tree_core=search_tree_core,
+            search_cpu_workers=search_cpu_workers,
+            search_inference_batch_size=search_inference_batch_size,
+            search_inference_wait_ms=search_inference_wait_ms,
+            search_template=search_template,
             dirichlet_alpha=dirichlet_alpha,
             dirichlet_mix=dirichlet_mix,
             q_scale=q_scale,
@@ -86,6 +107,7 @@ def run_league_selfplay(
         if rng.random() < league_prob:
             main_seat[b] = rng.randint(0, num_players - 1)
 
+    snapshots = SnapshotRecorder(buffer.snapshot_capacity, seed)
     rec_global: list[torch.Tensor] = []
     rec_source: list[torch.Tensor] = []
     rec_legal: list[torch.Tensor] = []
@@ -128,7 +150,20 @@ def run_league_selfplay(
                         dirichlet_alpha=dirichlet_alpha,
                         dirichlet_mix=dirichlet_mix,
                         q_scale=q_scale,
-                        search_config=SearchConfig(backend=search_backend, num_simulations=num_sims, temperature=temp, q_scale=q_scale, dirichlet_alpha=dirichlet_alpha, dirichlet_mix=dirichlet_mix, reward_mode=reward_mode),
+                        search_config=replace(
+                            search_template or SearchConfig(),
+                            backend=search_backend,
+                            num_simulations=num_sims,
+                            tree_core=search_tree_core,
+                            temperature=temp,
+                            q_scale=q_scale,
+                            dirichlet_alpha=dirichlet_alpha,
+                            dirichlet_mix=dirichlet_mix,
+                            reward_mode=reward_mode,
+                            cpu_workers=search_cpu_workers,
+                            inference_batch_size=search_inference_batch_size,
+                            inference_wait_ms=search_inference_wait_ms,
+                        ),
                         perf=perf,
                     )
 
@@ -158,9 +193,15 @@ def run_league_selfplay(
                         + tensor_nbytes(gi_rec)
                         + tensor_nbytes(step_rec)
                     )
-                    perf.add_count("league_selfplay_record_mb", record_bytes / (1024**2))
+                    perf.add_count(
+                        "league_selfplay_record_mb", record_bytes / (1024**2)
+                    )
                     if device_t != storage_device:
-                        perf.add_count("league_selfplay_device_transfer_mb", record_bytes / (1024**2))
+                        perf.add_count(
+                            "league_selfplay_device_transfer_mb",
+                            record_bytes / (1024**2),
+                        )
+                snapshots.capture(engine, main_idx)
                 rec_global.append(g_rec)
                 rec_source.append(s_rec)
                 rec_legal.append(l_rec)
@@ -176,11 +217,18 @@ def run_league_selfplay(
             with maybe_time(perf, "league_selfplay_opponent_mcts"):
                 opp_idx = opp_turn.nonzero(as_tuple=True)[0]
                 if perf is not None:
-                    perf.add_count("league_selfplay_opponent_positions", opp_idx.numel())
+                    perf.add_count(
+                        "league_selfplay_opponent_positions", opp_idx.numel()
+                    )
                 sub = engine.index_select(opp_idx)
                 with torch.no_grad():
                     opp_actions, _ = gumbel_root_act(
-                        sub, opp_net, num_sims=opponent_sims, perf=perf, reward_mode=reward_mode
+                        sub,
+                        opp_net,
+                        num_sims=opponent_sims,
+                        perf=perf,
+                        reward_mode=reward_mode,
+                        search_config=opponent_search,
                     )
                 actions.index_copy_(0, opp_idx, opp_actions)
 
@@ -217,7 +265,9 @@ def run_league_selfplay(
         all_step = torch.cat(rec_step, dim=0)
 
     with maybe_time(perf, "league_selfplay_value_targets"):
-        final_values = _final_rank_values(engine, num_players, reward_mode).to(storage_device)
+        final_values = _final_rank_values(engine, num_players, reward_mode).to(
+            storage_device
+        )
         unfinished = ~ended_mask
         if unfinished.any():
             final_values[unfinished, :num_players] = -1.0
@@ -225,7 +275,9 @@ def run_league_selfplay(
         per_sample = final_values[all_gi]
         rotated = _rotate_for_cp(per_sample, all_cp.to(torch.long), num_players)
         finished_mask = ended_mask[all_gi]
-        ttg = (game_end_step[all_gi].to(torch.float32) - all_step.to(torch.float32)).clamp_min(0)
+        ttg = (
+            game_end_step[all_gi].to(torch.float32) - all_step.to(torch.float32)
+        ).clamp_min(0)
         discount = torch.pow(
             torch.tensor(time_discount, dtype=torch.float32, device=storage_device), ttg
         )
@@ -251,6 +303,22 @@ def run_league_selfplay(
                 l,
                 sanitize_policy_targets(p, l),
                 sanitize_value_targets(v),
+                policy_sims=num_sims,
+                policy_surprise=policy_surprise(
+                    net, buffer, g, s, l, p, num_sims, num_players
+                ),
+                score_margin=final_score_margins(
+                    engine.scores, all_gi, all_cp, num_players
+                )[
+                    finished_sample_mask(
+                        all_l, all_p, value_targets, all_gi, ended_mask
+                    )
+                ],
+                snapshots=snapshots.selected(
+                    finished_sample_mask(
+                        all_l, all_p, value_targets, all_gi, ended_mask
+                    )
+                ),
             )
             samples_added = int(g.shape[0])
 

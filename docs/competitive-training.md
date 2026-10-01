@@ -1,5 +1,13 @@
 # Competitive two-player training
 
+For the complete experiment history, current retained baseline, and later results,
+start with the [training journal](training-journal.md). The dated measurements and
+initial campaign protocol below are historical, not the current promotion status.
+
+For the September 20 finalist and new experimental training/search options, see
+[two-player training enhancements](training-enhancements.md). The new tie reward
+requires fresh replay when warm-starting historical weights.
+
 The first milestone is a corrected v4 baseline and a controlled comparison of the
 existing `attn` model with `source_attn`. Model width remains 256. The code supports
 the later experiments, but their outcomes must be measured before changing the
@@ -43,7 +51,8 @@ completed with 202 passing pytest tests and a successful frontend production bui
 - All production modes now use `agent.env.engine.GameEngine`: persistent Rust
   simulation and feature encoding on CPU, with CPU/CUDA network inference and
   learning. Install the extension with `python -m pip install ./native/astra`.
-  Existing weights and replay remain compatible. Native RNG streams change
+  Existing weights remain compatible. Replay written before reward semantics v2
+  (shared winners receive zero) requires a fresh warm-start run. Native RNG streams change
   same-seed trajectories relative to the PyTorch baseline; historical measurements
   below retain their original backend/protocol. See the [simulator guide](../native/astra/SIMULATOR.md).
 - Search delegates round completion to `BatchedEngine.finalize_round()`. Terminal

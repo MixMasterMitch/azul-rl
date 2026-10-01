@@ -1,0 +1,3294 @@
+{
+  "as_of": "2026-10-01",
+  "note": "Read-only historical Optuna export. Naive database timestamps retain their original timezone ambiguity. Stored RUNNING states are stale, not active processes. Projected objectives are not measured future strength. NULL objective values retain their Optuna value_type. See training-journal.md for interpretation.",
+  "studies": [
+    {
+      "source": "agent/runs/optuna_azul-tune-curve-1023x32-r2.db",
+      "source_sha256": "11490285b57dcbd11ff11615e9ac63c53da69ba2522dc82c2fd39ea4a98dd439",
+      "studies": [
+        {
+          "id": 1,
+          "name": "azul-tune-curve-1023x32-r2"
+        }
+      ],
+      "trials": [
+        {
+          "number": 0,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 13:06:15.345613",
+          "completed_at_database_time": "2026-05-29 16:57:17.123970",
+          "parameters": {
+            "dirichlet_alpha": 0.26897280518785394,
+            "dirichlet_mix": 0.3544014751946664,
+            "entropy_bonus": 0.028073425385801404,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 52,
+            "lr": 0.0016347286339695158,
+            "q_scale": 22.6132628367509,
+            "reward_mode": "binary",
+            "time_discount": 0.9996526647571107,
+            "weight_decay": 8.665773497301056e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 1902.62784302142,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_ratings_2p": [
+              2123.668292581903,
+              2105.0477698866066,
+              2067.4699369735363,
+              2086.31071182677,
+              2000.915897897538,
+              1962.6501755166003,
+              2000.9160992934778
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0,
+              2.5,
+              3.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 2047.946106337515,
+            "fit_slope": -33.65286289815582,
+            "log_offset_hours": 0.05,
+            "predicted_rating_2p": 1902.62784302142,
+            "rating_2p_last": 2000.9160992934778,
+            "rating_at_last": 2000.9160992934778,
+            "session_ratings_2p": [
+              2105.0477698866066,
+              2067.4699369735363,
+              2086.31071182677,
+              2000.915897897538,
+              1962.6501755166003,
+              2000.9160992934778
+            ],
+            "study_baseline_rating_2p": 2123.668292581903,
+            "t_last_hours": 3.0,
+            "t_target_hours": 75.0
+          }
+        },
+        {
+          "number": 1,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 16:57:17.133555",
+          "completed_at_database_time": "2026-05-29 20:47:58.528664",
+          "parameters": {
+            "dirichlet_alpha": 0.2839407884694432,
+            "dirichlet_mix": 0.3846276997745065,
+            "entropy_bonus": 0.029265367121291158,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 73,
+            "lr": 0.0009380405448824639,
+            "q_scale": 20.29921050117467,
+            "reward_mode": "binary",
+            "time_discount": 0.9979078717039132,
+            "weight_decay": 1.2350752913484514e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 2144.6795480834203,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_ratings_2p": [
+              2123.668292581903,
+              2178.716049838171,
+              2132.930137983139,
+              2114.3735772029263,
+              2151.353844624121,
+              2151.353907221004,
+              2123.668204330841
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0,
+              2.5,
+              3.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 2139.495588995241,
+            "fit_slope": 1.2005033674581855,
+            "log_offset_hours": 0.05,
+            "predicted_rating_2p": 2144.6795480834203,
+            "rating_2p_last": 2123.668204330841,
+            "rating_at_last": 2123.668204330841,
+            "session_ratings_2p": [
+              2178.716049838171,
+              2132.930137983139,
+              2114.3735772029263,
+              2151.353844624121,
+              2151.353907221004,
+              2123.668204330841
+            ],
+            "study_baseline_rating_2p": 2123.668292581903,
+            "t_last_hours": 3.0,
+            "t_target_hours": 75.0
+          }
+        },
+        {
+          "number": 2,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 20:47:58.536798",
+          "completed_at_database_time": "2026-05-30 00:37:05.268837",
+          "parameters": {
+            "dirichlet_alpha": 0.24075699335709394,
+            "dirichlet_mix": 0.3750024580781077,
+            "entropy_bonus": 0.018029130591923,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 53,
+            "lr": 0.0016162252606759285,
+            "q_scale": 21.779006817177606,
+            "reward_mode": "score_scaled",
+            "time_discount": 0.9996980303292619,
+            "weight_decay": 6.158694713000752e-06
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 1939.4101672485253,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_ratings_2p": [
+              2123.668292581903,
+              2132.930666597036,
+              2029.5320326304702,
+              1972.2218940406617,
+              2114.3731661617517,
+              2020.005362383262,
+              2010.4650466701207
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0,
+              2.5,
+              3.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 2056.2946184891684,
+            "fit_slope": -27.068149059636315,
+            "log_offset_hours": 0.05,
+            "predicted_rating_2p": 1939.4101672485253,
+            "rating_2p_last": 2010.4650466701207,
+            "rating_at_last": 2010.4650466701207,
+            "session_ratings_2p": [
+              2132.930666597036,
+              2029.5320326304702,
+              1972.2218940406617,
+              2114.3731661617517,
+              2020.005362383262,
+              2010.4650466701207
+            ],
+            "study_baseline_rating_2p": 2123.668292581903,
+            "t_last_hours": 3.0,
+            "t_target_hours": 75.0
+          }
+        },
+        {
+          "number": 3,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-30 00:37:05.275359",
+          "completed_at_database_time": "2026-05-30 04:27:11.102520",
+          "parameters": {
+            "dirichlet_alpha": 0.2805445883855963,
+            "dirichlet_mix": 0.3858592984888138,
+            "entropy_bonus": 0.03776624855589681,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 64,
+            "lr": 0.003415797859198616,
+            "q_scale": 24.48176663649779,
+            "reward_mode": "score_scaled",
+            "time_discount": 0.9998662183409217,
+            "weight_decay": 0.0001766578244671357
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 1750.1664563826532,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_ratings_2p": [
+              2123.668292581903,
+              2029.5326323559584,
+              1962.6497906842299,
+              1962.6501395941077,
+              1886.2568796221615,
+              1838.9890322017493,
+              2020.0051947793504
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0,
+              2.5,
+              3.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 1972.3413898157119,
+            "fit_slope": -51.45136202162074,
+            "log_offset_hours": 0.05,
+            "predicted_rating_2p": 1750.1664563826532,
+            "rating_2p_last": 2020.0051947793504,
+            "rating_at_last": 2020.0051947793504,
+            "session_ratings_2p": [
+              2029.5326323559584,
+              1962.6497906842299,
+              1962.6501395941077,
+              1886.2568796221615,
+              1838.9890322017493,
+              2020.0051947793504
+            ],
+            "study_baseline_rating_2p": 2123.668292581903,
+            "t_last_hours": 3.0,
+            "t_target_hours": 75.0
+          }
+        },
+        {
+          "number": 4,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-30 04:27:11.109478",
+          "completed_at_database_time": "2026-05-30 08:16:46.773574",
+          "parameters": {
+            "dirichlet_alpha": 0.28045190757029165,
+            "dirichlet_mix": 0.45104900155307576,
+            "entropy_bonus": 0.03199790066943649,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 74,
+            "lr": 0.001049969596048895,
+            "q_scale": 27.691530072820147,
+            "reward_mode": "score_scaled",
+            "time_discount": 0.9977327815741277,
+            "weight_decay": 0.00010995473409551251
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 2175.1840241039454,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_ratings_2p": [
+              2123.668292581903,
+              2169.6327736899566,
+              2151.353850740748,
+              2095.6935995877443,
+              2178.7159205952103,
+              2142.1596191339445,
+              2169.6330019869747
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0,
+              2.5,
+              3.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 2147.573532362822,
+            "fit_slope": 6.394048978507028,
+            "log_offset_hours": 0.05,
+            "predicted_rating_2p": 2175.1840241039454,
+            "rating_2p_last": 2169.6330019869747,
+            "rating_at_last": 2169.6330019869747,
+            "session_ratings_2p": [
+              2169.6327736899566,
+              2151.353850740748,
+              2095.6935995877443,
+              2178.7159205952103,
+              2142.1596191339445,
+              2169.6330019869747
+            ],
+            "study_baseline_rating_2p": 2123.668292581903,
+            "t_last_hours": 3.0,
+            "t_target_hours": 75.0
+          }
+        },
+        {
+          "number": 5,
+          "state": "RUNNING",
+          "started_at_database_time": "2026-05-30 08:16:46.781159",
+          "completed_at_database_time": null,
+          "parameters": {
+            "dirichlet_alpha": 0.22452624955386516,
+            "dirichlet_mix": 0.4539793673244017,
+            "entropy_bonus": 0.03984407827116111,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 77,
+            "lr": 0.0038235143234385018,
+            "q_scale": 19.041893211389283,
+            "reward_mode": "score_scaled",
+            "time_discount": 0.9964927345239928,
+            "weight_decay": 9.911550189549473e-05
+          },
+          "objectives": [],
+          "recorded_attributes": {}
+        }
+      ]
+    },
+    {
+      "source": "agent/runs/optuna_azul-tune-curve-1023x32.db",
+      "source_sha256": "a64dd4a206d9bae3ddbd9c9643a6039a9161d51913c3ca061a6623656d3a8b18",
+      "studies": [
+        {
+          "id": 1,
+          "name": "azul-tune-curve-1023x32"
+        }
+      ],
+      "trials": [
+        {
+          "number": 0,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 11:37:58.727211",
+          "completed_at_database_time": "2026-05-29 11:38:28.149079",
+          "parameters": {
+            "dirichlet_alpha": 0.2660642327265653,
+            "dirichlet_mix": 0.5206855355521727,
+            "entropy_bonus": 0.021530281471203915,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 60,
+            "lr": 0.0010402008196231255,
+            "q_scale": 28.046682368651176,
+            "reward_mode": "binary",
+            "time_discount": 0.999989625432184,
+            "weight_decay": 9.32584960346943e-06
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 1,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 11:38:28.183870",
+          "completed_at_database_time": "2026-05-29 11:38:58.200788",
+          "parameters": {
+            "dirichlet_alpha": 0.27211618789763536,
+            "dirichlet_mix": 0.45096843802336894,
+            "entropy_bonus": 0.01800848779451692,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 65,
+            "lr": 0.0016539064697247653,
+            "q_scale": 20.936054809290866,
+            "reward_mode": "binary",
+            "time_discount": 0.9972698455382992,
+            "weight_decay": 0.00010360534987153945
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 2,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 11:38:58.232792",
+          "completed_at_database_time": "2026-05-29 11:39:27.840327",
+          "parameters": {
+            "dirichlet_alpha": 0.21184904060992993,
+            "dirichlet_mix": 0.37258856717213296,
+            "entropy_bonus": 0.03916333366059107,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 50,
+            "lr": 0.0011068605499719175,
+            "q_scale": 18.260327507445766,
+            "reward_mode": "score_scaled",
+            "time_discount": 0.9961655148695013,
+            "weight_decay": 7.184011768092477e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 3,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 11:39:27.847060",
+          "completed_at_database_time": "2026-05-29 11:39:56.921457",
+          "parameters": {
+            "dirichlet_alpha": 0.31748950127023434,
+            "dirichlet_mix": 0.40387784407797617,
+            "entropy_bonus": 0.03189534207431137,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 55,
+            "lr": 0.0036419857910683197,
+            "q_scale": 19.238927489285338,
+            "reward_mode": "score_scaled",
+            "time_discount": 0.9959511957972763,
+            "weight_decay": 6.563726807113236e-06
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 4,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 11:39:56.927890",
+          "completed_at_database_time": "2026-05-29 11:40:25.894727",
+          "parameters": {
+            "dirichlet_alpha": 0.23625620548088316,
+            "dirichlet_mix": 0.4724046601831974,
+            "entropy_bonus": 0.018217110235667786,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 55,
+            "lr": 0.0010826760223727095,
+            "q_scale": 20.20347345579254,
+            "reward_mode": "score_scaled",
+            "time_discount": 0.9957975303186659,
+            "weight_decay": 0.00040986614406087553
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 5,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 11:40:25.902405",
+          "completed_at_database_time": "2026-05-29 11:40:55.110535",
+          "parameters": {
+            "dirichlet_alpha": 0.28760240575394735,
+            "dirichlet_mix": 0.4670859396772107,
+            "entropy_bonus": 0.03139013703527188,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 68,
+            "lr": 0.001579464794460617,
+            "q_scale": 20.487399971627063,
+            "reward_mode": "binary",
+            "time_discount": 0.9999643037653906,
+            "weight_decay": 8.43290414220958e-06
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 6,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 11:40:55.146270",
+          "completed_at_database_time": "2026-05-29 11:41:24.492609",
+          "parameters": {
+            "dirichlet_alpha": 0.3105642378425555,
+            "dirichlet_mix": 0.4936970520247137,
+            "entropy_bonus": 0.03290110485936702,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 60,
+            "lr": 0.0019934767584513327,
+            "q_scale": 29.733000661142764,
+            "reward_mode": "score_scaled",
+            "time_discount": 0.9954728059634047,
+            "weight_decay": 2.7324822225642333e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 7,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 11:41:24.499074",
+          "completed_at_database_time": "2026-05-29 11:41:54.088812",
+          "parameters": {
+            "dirichlet_alpha": 0.19068950893617115,
+            "dirichlet_mix": 0.3650227141108257,
+            "entropy_bonus": 0.03426170380632305,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 53,
+            "lr": 0.0019465744231113844,
+            "q_scale": 22.031248093228232,
+            "reward_mode": "score_scaled",
+            "time_discount": 0.9968638690707277,
+            "weight_decay": 2.291654414723541e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 8,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 11:41:54.094960",
+          "completed_at_database_time": "2026-05-29 11:42:23.168035",
+          "parameters": {
+            "dirichlet_alpha": 0.24225720644651647,
+            "dirichlet_mix": 0.5371044093747244,
+            "entropy_bonus": 0.033366935804643845,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 54,
+            "lr": 0.001446166040753886,
+            "q_scale": 24.627772181163913,
+            "reward_mode": "binary",
+            "time_discount": 0.9978455706968739,
+            "weight_decay": 1.6156024644253407e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 9,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 11:42:23.202524",
+          "completed_at_database_time": "2026-05-29 11:42:53.073664",
+          "parameters": {
+            "dirichlet_alpha": 0.2106809514923774,
+            "dirichlet_mix": 0.4997179656693494,
+            "entropy_bonus": 0.023521704887127515,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 78,
+            "lr": 0.0020714476348647507,
+            "q_scale": 28.457578961366554,
+            "reward_mode": "binary",
+            "time_discount": 0.9959390012175886,
+            "weight_decay": 0.0004108633212114734
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 10,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 11:42:53.081152",
+          "completed_at_database_time": "2026-05-29 11:43:22.795186",
+          "parameters": {
+            "dirichlet_alpha": 0.35949489669905366,
+            "dirichlet_mix": 0.5464674848529283,
+            "entropy_bonus": 0.025111330805081416,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 72,
+            "lr": 0.0008021013170398469,
+            "q_scale": 26.12282811269856,
+            "reward_mode": "binary",
+            "time_discount": 0.9996162803417852,
+            "weight_decay": 0.00014205784275910457
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 11,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-29 11:43:22.828701",
+          "completed_at_database_time": "2026-05-29 11:43:51.937057",
+          "parameters": {
+            "dirichlet_alpha": 0.2677349388433172,
+            "dirichlet_mix": 0.4077982286507238,
+            "entropy_bonus": 0.017045233073929852,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 63,
+            "lr": 0.002829871085975317,
+            "q_scale": 23.224648364476497,
+            "reward_mode": "binary",
+            "time_discount": 0.9983390005228289,
+            "weight_decay": 8.968592693904881e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        }
+      ]
+    },
+    {
+      "source": "agent/runs/optuna_azul-tune-i1325-3h-v1.db",
+      "source_sha256": "970e3488507fa95aec51ff1e215ef36182ee9c113b84cbb99ce9228a2fb21ea2",
+      "studies": [
+        {
+          "id": 1,
+          "name": "azul-tune-i1325-3h-v1"
+        }
+      ],
+      "trials": [
+        {
+          "number": 0,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-31 10:43:07.819974",
+          "completed_at_database_time": "2026-05-31 14:36:58.695782",
+          "parameters": {
+            "dirichlet_alpha": 0.18435682955221008,
+            "dirichlet_mix": 0.5102290086048182,
+            "entropy_bonus": 0.016474727581409266,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 66,
+            "lr": 0.0017334569196997397,
+            "q_scale": 27.791034947105477,
+            "reward_mode": "binary",
+            "time_discount": 0.9952551614595224,
+            "weight_decay": 1.8905151467801222e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 3013.973760299582,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_ratings_2p": [
+              3016.8336911337774,
+              3023.4500112328737,
+              3030.079647965794,
+              3056.765203344249,
+              2944.8075297987884,
+              2997.0648918961347,
+              3056.7651926873755
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0,
+              2.5,
+              3.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 3017.9225123149263,
+            "fit_slope": -0.9144536079553076,
+            "log_offset_hours": 0.05,
+            "predicted_rating_2p": 3013.973760299582,
+            "rating_2p_last": 3056.7651926873755,
+            "rating_at_last": 3056.7651926873755,
+            "session_ratings_2p": [
+              3023.4500112328737,
+              3030.079647965794,
+              3056.765203344249,
+              2944.8075297987884,
+              2997.0648918961347,
+              3056.7651926873755
+            ],
+            "study_baseline_rating_2p": 3016.8336911337774,
+            "t_last_hours": 3.0,
+            "t_target_hours": 75.0
+          }
+        },
+        {
+          "number": 1,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-31 14:36:58.705458",
+          "completed_at_database_time": "2026-05-31 18:29:56.187995",
+          "parameters": {
+            "dirichlet_alpha": 0.2588536062768835,
+            "dirichlet_mix": 0.426493232872915,
+            "entropy_bonus": 0.038979631382434675,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 56,
+            "lr": 0.0008787118485896456,
+            "q_scale": 22.051969808840852,
+            "reward_mode": "score_scaled",
+            "time_discount": 0.9959865299737212,
+            "weight_decay": 3.294165598430241e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 2782.8939137109014,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_ratings_2p": [
+              3016.8336911337774,
+              2834.6654140835335,
+              2808.676534078278,
+              2873.53160075262,
+              2867.0596158175213,
+              2899.4178501604606,
+              2944.8074366060764
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0,
+              2.5,
+              3.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 2890.9355779181724,
+            "fit_slope": -25.02033281905574,
+            "log_offset_hours": 0.05,
+            "predicted_rating_2p": 2782.8939137109014,
+            "rating_2p_last": 2944.8074366060764,
+            "rating_at_last": 2944.8074366060764,
+            "session_ratings_2p": [
+              2834.6654140835335,
+              2808.676534078278,
+              2873.53160075262,
+              2867.0596158175213,
+              2899.4178501604606,
+              2944.8074366060764
+            ],
+            "study_baseline_rating_2p": 3016.8336911337774,
+            "t_last_hours": 3.0,
+            "t_target_hours": 75.0
+          }
+        },
+        {
+          "number": 2,
+          "state": "FAIL",
+          "started_at_database_time": "2026-05-31 18:29:56.194739",
+          "completed_at_database_time": "2026-05-31 21:42:14.940220",
+          "parameters": {
+            "dirichlet_alpha": 0.3429758759156832,
+            "dirichlet_mix": 0.4442928390913219,
+            "entropy_bonus": 0.026140950284903465,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 76,
+            "lr": 0.0028762733453671255,
+            "q_scale": 18.45639208050133,
+            "reward_mode": "score_scaled",
+            "time_discount": 0.9955639828511224,
+            "weight_decay": 9.547561981094106e-05
+          },
+          "objectives": [],
+          "recorded_attributes": {}
+        }
+      ]
+    },
+    {
+      "source": "agent/runs/optuna_azul-tune-v2-i1950-opus-2h-v1.db",
+      "source_sha256": "9eb7f1e7a5c7a366768ab028fe1af5c690cc34bfa4b69cd9c5411156229f757e",
+      "studies": [
+        {
+          "id": 1,
+          "name": "azul-tune-v2-i1950-opus-2h-v1"
+        }
+      ],
+      "trials": [
+        {
+          "number": 0,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-01 07:19:15.619282",
+          "completed_at_database_time": "2026-06-01 09:28:45.504555",
+          "parameters": {
+            "dirichlet_alpha": 0.24628786797433883,
+            "dirichlet_mix": 0.4721914606987125,
+            "entropy_bonus": 0.03489827061881234,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 58,
+            "lr": 0.002055041543083401,
+            "q_scale": 22.491716050165905,
+            "reward_mode": "score_scaled",
+            "time_discount": 0.9967312743777833,
+            "weight_decay": 4.669722043365774e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.3645621480556027,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.4453125,
+              0.38671875,
+              0.3671875,
+              0.421875,
+              0.421875
+            ],
+            "curve_opus_winrate_values": [
+              0.4453125,
+              0.38671875,
+              0.3671875,
+              0.421875,
+              0.421875
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": -0.3894812870301258,
+            "fit_slope": -0.03859372340105746,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.421875,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.421875,
+            "predicted_opus_winrate": 0.3645621480556027,
+            "predicted_winrate": 0.3645621480556027,
+            "predicted_winrate_logit": -0.555617252771753,
+            "session_objective_values": [
+              0.38671875,
+              0.3671875,
+              0.421875,
+              0.421875
+            ],
+            "session_opus_winrate_values": [
+              0.38671875,
+              0.3671875,
+              0.421875,
+              0.421875
+            ],
+            "study_baseline_objective": 0.4453125,
+            "study_baseline_opus_winrate": 0.4453125,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.421875,
+            "winrate_logit_at_last": -0.3150810466398954
+          }
+        },
+        {
+          "number": 1,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-01 09:28:45.517062",
+          "completed_at_database_time": "2026-06-01 11:37:57.052696",
+          "parameters": {
+            "dirichlet_alpha": 0.2785269932081616,
+            "dirichlet_mix": 0.41605080605980876,
+            "entropy_bonus": 0.043543468719228505,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 66,
+            "lr": 0.0035072347382722182,
+            "q_scale": 21.49752555850492,
+            "reward_mode": "binary",
+            "time_discount": 0.9972696106419494,
+            "weight_decay": 6.697266128735241e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.414014858040783,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.4453125,
+              0.44921875,
+              0.48046875,
+              0.41796875,
+              0.41015625
+            ],
+            "curve_opus_winrate_values": [
+              0.4453125,
+              0.44921875,
+              0.48046875,
+              0.41796875,
+              0.41015625
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": -0.250018159707988,
+            "fit_slope": -0.02262027442525365,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.41015625,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.41015625,
+            "predicted_opus_winrate": 0.414014858040783,
+            "predicted_winrate": 0.414014858040783,
+            "predicted_winrate_logit": -0.34739257206844915,
+            "session_objective_values": [
+              0.44921875,
+              0.48046875,
+              0.41796875,
+              0.41015625
+            ],
+            "session_opus_winrate_values": [
+              0.44921875,
+              0.48046875,
+              0.41796875,
+              0.41015625
+            ],
+            "study_baseline_objective": 0.4453125,
+            "study_baseline_opus_winrate": 0.4453125,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.41015625,
+            "winrate_logit_at_last": -0.36331948665740094
+          }
+        },
+        {
+          "number": 2,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-01 11:37:57.061501",
+          "completed_at_database_time": "2026-06-01 13:47:07.213259",
+          "parameters": {
+            "dirichlet_alpha": 0.3711940600918182,
+            "dirichlet_mix": 0.4072352952688011,
+            "entropy_bonus": 0.03301956227317336,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 55,
+            "lr": 0.0015902893571946998,
+            "q_scale": 22.566002662759413,
+            "reward_mode": "binary",
+            "time_discount": 0.9978808182532164,
+            "weight_decay": 0.000228327939785975
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.5083947434362731,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.4453125,
+              0.48046875,
+              0.484375,
+              0.46875,
+              0.47265625
+            ],
+            "curve_opus_winrate_values": [
+              0.4453125,
+              0.48046875,
+              0.484375,
+              0.46875,
+              0.47265625
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": -0.10375108572962054,
+            "fit_slope": 0.03190278574674547,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.47265625,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.47265625,
+            "predicted_opus_winrate": 0.5083947434362731,
+            "predicted_winrate": 0.5083947434362731,
+            "predicted_winrate_logit": 0.033582129436101296,
+            "session_objective_values": [
+              0.48046875,
+              0.484375,
+              0.46875,
+              0.47265625
+            ],
+            "session_opus_winrate_values": [
+              0.48046875,
+              0.484375,
+              0.46875,
+              0.47265625
+            ],
+            "study_baseline_objective": 0.4453125,
+            "study_baseline_opus_winrate": 0.4453125,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.47265625,
+            "winrate_logit_at_last": -0.1094842328416884
+          }
+        },
+        {
+          "number": 3,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-01 13:47:07.224435",
+          "completed_at_database_time": "2026-06-01 15:55:56.896561",
+          "parameters": {
+            "dirichlet_alpha": 0.35631646169541964,
+            "dirichlet_mix": 0.4538563970846842,
+            "entropy_bonus": 0.01978976922207991,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 74,
+            "lr": 0.0009746022333536898,
+            "q_scale": 28.031057110113437,
+            "reward_mode": "binary",
+            "time_discount": 0.99872870519272,
+            "weight_decay": 0.0001432631980134423
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.5353365019933901,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.4453125,
+              0.52734375,
+              0.48828125,
+              0.453125,
+              0.5078125
+            ],
+            "curve_opus_winrate_values": [
+              0.4453125,
+              0.52734375,
+              0.48828125,
+              0.453125,
+              0.5078125
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": -0.042352601325121725,
+            "fit_slope": 0.04272839234552824,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.5078125,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.5078125,
+            "predicted_opus_winrate": 0.5353365019933901,
+            "predicted_winrate": 0.5353365019933901,
+            "predicted_winrate_logit": 0.14158204144419925,
+            "session_objective_values": [
+              0.52734375,
+              0.48828125,
+              0.453125,
+              0.5078125
+            ],
+            "session_opus_winrate_values": [
+              0.52734375,
+              0.48828125,
+              0.453125,
+              0.5078125
+            ],
+            "study_baseline_objective": 0.4453125,
+            "study_baseline_opus_winrate": 0.4453125,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.5078125,
+            "winrate_logit_at_last": 0.03125254350410453
+          }
+        },
+        {
+          "number": 4,
+          "state": "FAIL",
+          "started_at_database_time": "2026-06-01 15:55:56.906915",
+          "completed_at_database_time": "2026-06-01 16:39:50.180124",
+          "parameters": {
+            "dirichlet_alpha": 0.26881898912906643,
+            "dirichlet_mix": 0.399367171637469,
+            "entropy_bonus": 0.01877754862230617,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 57,
+            "lr": 0.001924649691846685,
+            "q_scale": 28.636257359861485,
+            "reward_mode": "binary",
+            "time_discount": 0.9976891808989652,
+            "weight_decay": 0.00024666435437586997
+          },
+          "objectives": [],
+          "recorded_attributes": {}
+        }
+      ]
+    },
+    {
+      "source": "agent/runs/optuna_azul-tune-v3-focused-opus-v1.db",
+      "source_sha256": "71d02ce9053bc11fadfcb24e9fbf615a99d09b72f68866443ed99d9691a50155",
+      "studies": [
+        {
+          "id": 1,
+          "name": "azul-tune-v3-focused-opus-v1"
+        }
+      ],
+      "trials": [
+        {
+          "number": 0,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-04 19:19:01.316723",
+          "completed_at_database_time": "2026-06-04 21:39:25.339208",
+          "parameters": {
+            "bot_selfplay_opus_prob": 0.7399606081660247,
+            "dirichlet_alpha": 0.2711199880880392,
+            "dirichlet_mix": 0.41975922559046364,
+            "entropy_bonus": 0.019693103076427777,
+            "learner_steps_per_iter": 71,
+            "lr": 0.0014511016880620709,
+            "q_scale": 22.36304961371002,
+            "time_discount": 0.998225039191052,
+            "training_cycle_length": 2,
+            "weight_decay": 0.0002478866076292111
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.7494874717141773,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.79296875,
+              0.8203125,
+              0.76953125,
+              0.7734375,
+              0.767578125
+            ],
+            "curve_opus_winrate_values": [
+              0.79296875,
+              0.8203125,
+              0.76953125,
+              0.7734375,
+              0.767578125
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 1.2777298400998685,
+            "fit_slope": -0.0422439329137615,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.767578125,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.767578125,
+            "predicted_opus_winrate": 0.7494874717141773,
+            "predicted_winrate": 0.7494874717141773,
+            "predicted_winrate_logit": 1.0958806694868048,
+            "session_objective_values": [
+              0.8203125,
+              0.76953125,
+              0.7734375,
+              0.767578125
+            ],
+            "session_opus_winrate_values": [
+              0.8203125,
+              0.76953125,
+              0.7734375,
+              0.767578125
+            ],
+            "study_baseline_objective": 0.79296875,
+            "study_baseline_opus_winrate": 0.79296875,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.767578125,
+            "winrate_logit_at_last": 1.1946861187577318
+          }
+        },
+        {
+          "number": 1,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-04 21:39:25.358329",
+          "completed_at_database_time": "2026-06-04 23:58:54.985455",
+          "parameters": {
+            "bot_selfplay_opus_prob": 0.37051790046030864,
+            "dirichlet_alpha": 0.34944954581567655,
+            "dirichlet_mix": 0.4038479132180313,
+            "entropy_bonus": 0.011641387689149775,
+            "learner_steps_per_iter": 76,
+            "lr": 0.0010950522551302453,
+            "q_scale": 27.97977579079631,
+            "time_discount": 0.9981039749761837,
+            "training_cycle_length": 4,
+            "weight_decay": 0.0002247933324387192
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.8183845328483662,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.79296875,
+              0.814453125,
+              0.802734375,
+              0.79296875,
+              0.814453125
+            ],
+            "curve_opus_winrate_values": [
+              0.79296875,
+              0.814453125,
+              0.802734375,
+              0.79296875,
+              0.814453125
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 1.4191233324364814,
+            "fit_slope": 0.020051696000998168,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.814453125,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.814453125,
+            "predicted_opus_winrate": 0.8183845328483662,
+            "predicted_winrate": 0.8183845328483662,
+            "predicted_winrate_logit": 1.505440681122047,
+            "session_objective_values": [
+              0.814453125,
+              0.802734375,
+              0.79296875,
+              0.814453125
+            ],
+            "session_opus_winrate_values": [
+              0.814453125,
+              0.802734375,
+              0.79296875,
+              0.814453125
+            ],
+            "study_baseline_objective": 0.79296875,
+            "study_baseline_opus_winrate": 0.79296875,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.814453125,
+            "winrate_logit_at_last": 1.4792093301982605
+          }
+        },
+        {
+          "number": 2,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-04 23:58:54.999323",
+          "completed_at_database_time": "2026-06-05 02:19:00.316682",
+          "parameters": {
+            "bot_selfplay_opus_prob": 0.5923889446028061,
+            "dirichlet_alpha": 0.26550744374879726,
+            "dirichlet_mix": 0.4461015069863147,
+            "entropy_bonus": 0.015342378998109071,
+            "learner_steps_per_iter": 74,
+            "lr": 0.0011868506011851556,
+            "q_scale": 21.89625270701307,
+            "time_discount": 0.9999872577606339,
+            "training_cycle_length": 4,
+            "weight_decay": 0.00021451571666338752
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.7971236901192993,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.79296875,
+              0.81640625,
+              0.767578125,
+              0.7890625,
+              0.810546875
+            ],
+            "curve_opus_winrate_values": [
+              0.79296875,
+              0.81640625,
+              0.767578125,
+              0.7890625,
+              0.810546875
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 1.3613153404104361,
+            "fit_slope": 0.001648888822974304,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.810546875,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.810546875,
+            "predicted_opus_winrate": 0.7971236901192993,
+            "predicted_winrate": 0.7971236901192993,
+            "predicted_winrate_logit": 1.3684133789738235,
+            "session_objective_values": [
+              0.81640625,
+              0.767578125,
+              0.7890625,
+              0.810546875
+            ],
+            "session_opus_winrate_values": [
+              0.81640625,
+              0.767578125,
+              0.7890625,
+              0.810546875
+            ],
+            "study_baseline_objective": 0.79296875,
+            "study_baseline_opus_winrate": 0.79296875,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.810546875,
+            "winrate_logit_at_last": 1.4535675417273155
+          }
+        },
+        {
+          "number": 3,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-05 02:19:00.325426",
+          "completed_at_database_time": "2026-06-05 04:38:42.721425",
+          "parameters": {
+            "bot_selfplay_opus_prob": 0.4220522252488908,
+            "dirichlet_alpha": 0.3349698886786243,
+            "dirichlet_mix": 0.5050454749586786,
+            "entropy_bonus": 0.02234587478780227,
+            "learner_steps_per_iter": 77,
+            "lr": 0.0009178565488927336,
+            "q_scale": 21.27466018814601,
+            "time_discount": 0.99818575415992,
+            "training_cycle_length": 2,
+            "weight_decay": 6.159863383200209e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.8055748964558097,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.79296875,
+              0.796875,
+              0.822265625,
+              0.80078125,
+              0.783203125
+            ],
+            "curve_opus_winrate_values": [
+              0.79296875,
+              0.796875,
+              0.822265625,
+              0.80078125,
+              0.783203125
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 1.3872391125116188,
+            "fit_slope": 0.007961002442506505,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.783203125,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.783203125,
+            "predicted_opus_winrate": 0.8055748964558097,
+            "predicted_winrate": 0.8055748964558097,
+            "predicted_winrate_logit": 1.4215091624705982,
+            "session_objective_values": [
+              0.796875,
+              0.822265625,
+              0.80078125,
+              0.783203125
+            ],
+            "session_opus_winrate_values": [
+              0.796875,
+              0.822265625,
+              0.80078125,
+              0.783203125
+            ],
+            "study_baseline_objective": 0.79296875,
+            "study_baseline_opus_winrate": 0.79296875,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.783203125,
+            "winrate_logit_at_last": 1.284431225994235
+          }
+        },
+        {
+          "number": 4,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-05 04:38:42.734101",
+          "completed_at_database_time": "2026-06-05 06:58:15.772052",
+          "parameters": {
+            "bot_selfplay_opus_prob": 0.4908419365632807,
+            "dirichlet_alpha": 0.30586925091891387,
+            "dirichlet_mix": 0.45071709516011366,
+            "entropy_bonus": 0.01779168373099558,
+            "learner_steps_per_iter": 77,
+            "lr": 0.0007852837741784518,
+            "q_scale": 20.01233241092384,
+            "time_discount": 0.9986893109580096,
+            "training_cycle_length": 2,
+            "weight_decay": 0.00026416129774767635
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.7954724815717523,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.79296875,
+              0.8046875,
+              0.796875,
+              0.80078125,
+              0.78515625
+            ],
+            "curve_opus_winrate_values": [
+              0.79296875,
+              0.8046875,
+              0.796875,
+              0.80078125,
+              0.78515625
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 1.3621277576968078,
+            "fit_slope": -0.0009045920353267709,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.78515625,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.78515625,
+            "predicted_opus_winrate": 0.7954724815717523,
+            "predicted_winrate": 0.7954724815717523,
+            "predicted_winrate_logit": 1.3582337236895299,
+            "session_objective_values": [
+              0.8046875,
+              0.796875,
+              0.80078125,
+              0.78515625
+            ],
+            "session_opus_winrate_values": [
+              0.8046875,
+              0.796875,
+              0.80078125,
+              0.78515625
+            ],
+            "study_baseline_objective": 0.79296875,
+            "study_baseline_opus_winrate": 0.79296875,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.78515625,
+            "winrate_logit_at_last": 1.295971722826605
+          }
+        },
+        {
+          "number": 5,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-05 06:58:15.788801",
+          "completed_at_database_time": "2026-06-05 09:17:48.438974",
+          "parameters": {
+            "bot_selfplay_opus_prob": 0.5013222621604848,
+            "dirichlet_alpha": 0.3219303721824521,
+            "dirichlet_mix": 0.441310976409024,
+            "entropy_bonus": 0.019249715802012204,
+            "learner_steps_per_iter": 73,
+            "lr": 0.0013413499753283853,
+            "q_scale": 24.519085389998285,
+            "time_discount": 0.9994795626945125,
+            "training_cycle_length": 2,
+            "weight_decay": 0.00025719391858451527
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.8030644077553785,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.79296875,
+              0.771484375,
+              0.7890625,
+              0.8046875,
+              0.80078125
+            ],
+            "curve_opus_winrate_values": [
+              0.79296875,
+              0.771484375,
+              0.7890625,
+              0.8046875,
+              0.80078125
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 1.3440189856875466,
+            "fit_slope": 0.014295681937536477,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.80078125,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.80078125,
+            "predicted_opus_winrate": 0.8030644077553785,
+            "predicted_winrate": 0.8030644077553785,
+            "predicted_winrate_logit": 1.40555818728121,
+            "session_objective_values": [
+              0.771484375,
+              0.7890625,
+              0.8046875,
+              0.80078125
+            ],
+            "session_opus_winrate_values": [
+              0.771484375,
+              0.7890625,
+              0.8046875,
+              0.80078125
+            ],
+            "study_baseline_objective": 0.79296875,
+            "study_baseline_opus_winrate": 0.79296875,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.80078125,
+            "winrate_logit_at_last": 1.3911843464140823
+          }
+        },
+        {
+          "number": 6,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-05 09:17:48.451936",
+          "completed_at_database_time": "2026-06-05 11:38:06.075683",
+          "parameters": {
+            "bot_selfplay_opus_prob": 0.6917209049449777,
+            "dirichlet_alpha": 0.31432438058470014,
+            "dirichlet_mix": 0.44199727726060883,
+            "entropy_bonus": 0.011364362315542456,
+            "learner_steps_per_iter": 68,
+            "lr": 0.0008301588107273675,
+            "q_scale": 22.443608315728664,
+            "time_discount": 0.998564559201002,
+            "training_cycle_length": 8,
+            "weight_decay": 0.0002985748671365076
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.834975604838396,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.79296875,
+              0.833984375,
+              0.806640625,
+              0.826171875,
+              0.802734375
+            ],
+            "curve_opus_winrate_values": [
+              0.79296875,
+              0.833984375,
+              0.806640625,
+              0.826171875,
+              0.802734375
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 1.4846796580923052,
+            "fit_slope": 0.03173932013809914,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.802734375,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.802734375,
+            "predicted_opus_winrate": 0.834975604838396,
+            "predicted_winrate": 0.834975604838396,
+            "predicted_winrate_logit": 1.6213091962254746,
+            "session_objective_values": [
+              0.833984375,
+              0.806640625,
+              0.826171875,
+              0.802734375
+            ],
+            "session_opus_winrate_values": [
+              0.833984375,
+              0.806640625,
+              0.826171875,
+              0.802734375
+            ],
+            "study_baseline_objective": 0.79296875,
+            "study_baseline_opus_winrate": 0.79296875,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.802734375,
+            "winrate_logit_at_last": 1.4034726976549752
+          }
+        },
+        {
+          "number": 7,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-05 11:38:06.092628",
+          "completed_at_database_time": "2026-06-05 13:57:52.362880",
+          "parameters": {
+            "bot_selfplay_opus_prob": 0.7475681228474933,
+            "dirichlet_alpha": 0.3553175366312712,
+            "dirichlet_mix": 0.41939355060337935,
+            "entropy_bonus": 0.013038596272389659,
+            "learner_steps_per_iter": 80,
+            "lr": 0.0009555557229436683,
+            "q_scale": 30.869618725537272,
+            "time_discount": 0.9982179306092019,
+            "training_cycle_length": 2,
+            "weight_decay": 0.00018239568197509466
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.8223725573545319,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.79296875,
+              0.83984375,
+              0.826171875,
+              0.791015625,
+              0.802734375
+            ],
+            "curve_opus_winrate_values": [
+              0.79296875,
+              0.83984375,
+              0.826171875,
+              0.791015625,
+              0.802734375
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 1.4660270474040784,
+            "fit_slope": 0.015443007334464518,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.802734375,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.802734375,
+            "predicted_opus_winrate": 0.8223725573545319,
+            "predicted_winrate": 0.8223725573545319,
+            "predicted_winrate_logit": 1.5325051871472886,
+            "session_objective_values": [
+              0.83984375,
+              0.826171875,
+              0.791015625,
+              0.802734375
+            ],
+            "session_opus_winrate_values": [
+              0.83984375,
+              0.826171875,
+              0.791015625,
+              0.802734375
+            ],
+            "study_baseline_objective": 0.79296875,
+            "study_baseline_opus_winrate": 0.79296875,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.802734375,
+            "winrate_logit_at_last": 1.4034726976549752
+          }
+        },
+        {
+          "number": 8,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-06-05 13:57:52.379256",
+          "completed_at_database_time": "2026-06-05 16:17:15.072521",
+          "parameters": {
+            "bot_selfplay_opus_prob": 0.36801279738712916,
+            "dirichlet_alpha": 0.25668356196635866,
+            "dirichlet_mix": 0.5332343378344558,
+            "entropy_bonus": 0.014274964936918592,
+            "learner_steps_per_iter": 72,
+            "lr": 0.0009217470483295072,
+            "q_scale": 26.747517709474458,
+            "time_discount": 0.999444440976462,
+            "training_cycle_length": 4,
+            "weight_decay": 8.96240535348826e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.8684374178327605,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "curve_objective_values": [
+              0.79296875,
+              0.8125,
+              0.8125,
+              0.841796875,
+              0.8359375
+            ],
+            "curve_opus_winrate_values": [
+              0.79296875,
+              0.8125,
+              0.8125,
+              0.841796875,
+              0.8359375
+            ],
+            "curve_times_hours": [
+              0.0,
+              0.5,
+              1.0,
+              1.5,
+              2.0
+            ],
+            "extrapolate_hours": 72.0,
+            "fit_intercept": 1.5522811760534827,
+            "fit_slope": 0.07780531664451368,
+            "log_offset_hours": 0.05,
+            "objective_last": 0.8359375,
+            "objective_name": "opus_winrate",
+            "opus_winrate_last": 0.8359375,
+            "predicted_opus_winrate": 0.8684374178327605,
+            "predicted_winrate": 0.8684374178327605,
+            "predicted_winrate_logit": 1.8872128768961955,
+            "session_objective_values": [
+              0.8125,
+              0.8125,
+              0.841796875,
+              0.8359375
+            ],
+            "session_opus_winrate_values": [
+              0.8125,
+              0.8125,
+              0.841796875,
+              0.8359375
+            ],
+            "study_baseline_objective": 0.79296875,
+            "study_baseline_opus_winrate": 0.79296875,
+            "t_last_hours": 2.0,
+            "t_target_hours": 74.0,
+            "winrate_at_last": 0.8359375,
+            "winrate_logit_at_last": 1.6283063967384832
+          }
+        }
+      ]
+    },
+    {
+      "source": "agent/runs/optuna_azul-tune.db",
+      "source_sha256": "8ca6ee35f9dc60afbf6d708f4d4ad90c2d97240666f658448dc3df638c4f20c5",
+      "studies": [
+        {
+          "id": 1,
+          "name": "azul-tune"
+        }
+      ],
+      "trials": [
+        {
+          "number": 0,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-26 22:57:46.648141",
+          "completed_at_database_time": "2026-05-26 23:35:34.980790",
+          "parameters": {
+            "dirichlet_alpha": 0.24433759101132274,
+            "dirichlet_mix": 0.4505810450503923,
+            "entropy_bonus": 0.03099344223079155,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 67,
+            "lr": 0.0022323954198873956,
+            "q_scale": 24.53328354827924,
+            "selfplay_games": 4095,
+            "selfplay_sims": 8,
+            "time_discount": 0.9966314954733775,
+            "weight_decay": 1.6466784421555415e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.14973958333333334,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.14973958333333334,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.44921875
+          }
+        },
+        {
+          "number": 1,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-26 23:35:34.990274",
+          "completed_at_database_time": "2026-05-26 23:35:34.999929",
+          "parameters": {
+            "selfplay_games": 511
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 2,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-26 23:35:35.005698",
+          "completed_at_database_time": "2026-05-26 23:35:35.015266",
+          "parameters": {
+            "selfplay_games": 2047
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 3,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-26 23:35:35.022569",
+          "completed_at_database_time": "2026-05-26 23:35:35.036016",
+          "parameters": {
+            "selfplay_games": 2047
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 4,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-26 23:35:35.042041",
+          "completed_at_database_time": "2026-05-26 23:35:35.052932",
+          "parameters": {
+            "selfplay_games": 2047
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 5,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-26 23:35:35.058295",
+          "completed_at_database_time": "2026-05-26 23:35:35.067651",
+          "parameters": {
+            "selfplay_games": 2047
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 6,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-26 23:35:35.074116",
+          "completed_at_database_time": "2026-05-26 23:35:35.084986",
+          "parameters": {
+            "selfplay_games": 1023
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 7,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-26 23:35:35.091095",
+          "completed_at_database_time": "2026-05-26 23:35:35.101317",
+          "parameters": {
+            "selfplay_games": 1023
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 8,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-26 23:35:35.106819",
+          "completed_at_database_time": "2026-05-26 23:35:35.116157",
+          "parameters": {
+            "selfplay_games": 2047
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 9,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-26 23:35:35.121824",
+          "completed_at_database_time": "2026-05-26 23:35:35.132357",
+          "parameters": {
+            "selfplay_games": 1023
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 10,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-26 23:35:35.137893",
+          "completed_at_database_time": "2026-05-27 00:12:13.489848",
+          "parameters": {
+            "dirichlet_alpha": 0.2700038983673594,
+            "dirichlet_mix": 0.47417244080871107,
+            "entropy_bonus": 0.034023311941173064,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 65,
+            "lr": 0.0027446665090331947,
+            "q_scale": 25.39398363958115,
+            "selfplay_games": 4095,
+            "selfplay_sims": 8,
+            "time_discount": 0.9972792777999744,
+            "weight_decay": 1.2320198018840576e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.3359375,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.3359375,
+            "vs_heuristic_winrate": 0.01171875,
+            "vs_opus_winrate": 0.015625,
+            "vs_random_winrate": 0.98046875
+          }
+        },
+        {
+          "number": 11,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 00:12:13.498060",
+          "completed_at_database_time": "2026-05-27 00:48:49.123773",
+          "parameters": {
+            "dirichlet_alpha": 0.2624700214057585,
+            "dirichlet_mix": 0.4914448444479439,
+            "entropy_bonus": 0.0324723059664917,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 66,
+            "lr": 0.002592175856938662,
+            "q_scale": 25.621759890398902,
+            "selfplay_games": 4095,
+            "selfplay_sims": 8,
+            "time_discount": 0.9981066405105425,
+            "weight_decay": 1.1755246619800392e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.24869791666666666,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.24869791666666666,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.74609375
+          }
+        },
+        {
+          "number": 12,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 00:48:49.129630",
+          "completed_at_database_time": "2026-05-27 01:24:25.275450",
+          "parameters": {
+            "dirichlet_alpha": 0.3065432977877606,
+            "dirichlet_mix": 0.4685445987526193,
+            "entropy_bonus": 0.03447295930608246,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 66,
+            "lr": 0.0032842186548251813,
+            "q_scale": 27.62573453499435,
+            "selfplay_games": 4095,
+            "selfplay_sims": 8,
+            "time_discount": 0.9998016862372598,
+            "weight_decay": 1.0131198146059166e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.3151041666666667,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.3151041666666667,
+            "vs_heuristic_winrate": 0.03515625,
+            "vs_opus_winrate": 0.0078125,
+            "vs_random_winrate": 0.90234375
+          }
+        },
+        {
+          "number": 13,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 01:24:25.282104",
+          "completed_at_database_time": "2026-05-27 02:01:45.216956",
+          "parameters": {
+            "dirichlet_alpha": 0.6083447230716981,
+            "dirichlet_mix": 0.16897960878778034,
+            "entropy_bonus": 0.04901708618800596,
+            "learner_batch": 128,
+            "learner_steps_per_iter": 28,
+            "lr": 0.008637042203727791,
+            "q_scale": 28.52228735611155,
+            "selfplay_games": 4095,
+            "selfplay_sims": 16,
+            "time_discount": 0.9998492722541498,
+            "weight_decay": 1.1329957992514537e-06
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.006510416666666667,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.006510416666666667,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.01953125
+          }
+        },
+        {
+          "number": 14,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 02:01:45.223770",
+          "completed_at_database_time": "2026-05-27 02:37:57.939095",
+          "parameters": {
+            "dirichlet_alpha": 0.04369255986824343,
+            "dirichlet_mix": 0.3716679949033464,
+            "entropy_bonus": 0.005201969304897018,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 106,
+            "lr": 0.0001094568314097106,
+            "q_scale": 7.715289631266018,
+            "selfplay_games": 4095,
+            "selfplay_sims": 8,
+            "time_discount": 0.9850350557085434,
+            "weight_decay": 0.0014438760192909867
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.2955729166666667,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.2955729166666667,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.88671875
+          }
+        },
+        {
+          "number": 15,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 02:37:57.945349",
+          "completed_at_database_time": "2026-05-27 03:14:14.924866",
+          "parameters": {
+            "dirichlet_alpha": 0.6312434700864363,
+            "dirichlet_mix": 0.3243747417032703,
+            "entropy_bonus": 0.03998506967789742,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 51,
+            "lr": 0.0005398460931344631,
+            "q_scale": 20.21877764512326,
+            "selfplay_games": 4095,
+            "selfplay_sims": 8,
+            "time_discount": 0.9918394204379157,
+            "weight_decay": 4.1213798650974794e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.3255208333333333,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.3255208333333333,
+            "vs_heuristic_winrate": 0.01171875,
+            "vs_opus_winrate": 0.0078125,
+            "vs_random_winrate": 0.95703125
+          }
+        },
+        {
+          "number": 16,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 03:14:14.930722",
+          "completed_at_database_time": "2026-05-27 03:14:14.941035",
+          "parameters": {
+            "selfplay_games": 511
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": null,
+              "value_type": "INF_NEG"
+            }
+          ],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 17,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 03:14:14.946847",
+          "completed_at_database_time": "2026-05-27 03:50:35.427141",
+          "parameters": {
+            "dirichlet_alpha": 0.9578471840194085,
+            "dirichlet_mix": 0.26181079264505813,
+            "entropy_bonus": 0.046411953458088455,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 28,
+            "lr": 0.00037705375552009806,
+            "q_scale": 15.226332383554091,
+            "selfplay_games": 4095,
+            "selfplay_sims": 8,
+            "time_discount": 0.990754022278746,
+            "weight_decay": 0.0002573124601499702
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.2786458333333333,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.2786458333333333,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.8359375
+          }
+        },
+        {
+          "number": 18,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 03:50:35.432985",
+          "completed_at_database_time": "2026-05-27 04:27:19.287089",
+          "parameters": {
+            "dirichlet_alpha": 0.08754038020227552,
+            "dirichlet_mix": 0.31919708753530474,
+            "entropy_bonus": 0.01751099556532255,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 97,
+            "lr": 1.1645190018025475e-05,
+            "q_scale": 18.27439279208249,
+            "selfplay_games": 4095,
+            "selfplay_sims": 16,
+            "time_discount": 0.9920822324134339,
+            "weight_decay": 9.530668574987228e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.171875,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.171875,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.515625
+          }
+        },
+        {
+          "number": 19,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 04:27:19.293333",
+          "completed_at_database_time": "2026-05-27 05:03:47.125488",
+          "parameters": {
+            "dirichlet_alpha": 0.5103580925751445,
+            "dirichlet_mix": 0.21230676791051473,
+            "entropy_bonus": 0.0403370556945876,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 45,
+            "lr": 0.0004856977279602562,
+            "q_scale": 18.732124287258856,
+            "selfplay_games": 4095,
+            "selfplay_sims": 8,
+            "time_discount": 0.9938601096581436,
+            "weight_decay": 0.00012731471915905225
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.2955729166666667,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.2955729166666667,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.88671875
+          }
+        },
+        {
+          "number": 20,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 07:15:28.778570",
+          "completed_at_database_time": "2026-05-27 07:51:46.773117",
+          "parameters": {
+            "dirichlet_alpha": 0.13790223441556476,
+            "dirichlet_mix": 0.383733385943423,
+            "entropy_bonus": 0.024597318911789807,
+            "learner_batch": 128,
+            "learner_steps_per_iter": 128,
+            "lr": 0.0008485358647547591,
+            "mcts_sims": 64,
+            "q_scale": 20.52508391502787,
+            "selfplay_games": 511,
+            "time_discount": 0.9857824276463281,
+            "weight_decay": 1.8943918036717927e-06
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.10026041666666667,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.10026041666666667,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.30078125
+          }
+        },
+        {
+          "number": 21,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 07:51:46.781243",
+          "completed_at_database_time": "2026-05-27 08:27:51.290376",
+          "parameters": {
+            "dirichlet_alpha": 0.3935833689647219,
+            "dirichlet_mix": 0.4282864591273806,
+            "entropy_bonus": 0.035971168425867284,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 55,
+            "lr": 0.008192514947840119,
+            "mcts_sims": 16,
+            "q_scale": 28.774029664674288,
+            "selfplay_games": 4095,
+            "time_discount": 0.995477631287298,
+            "weight_decay": 1.508377610352907e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.10286458333333333,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.10286458333333333,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.30859375
+          }
+        },
+        {
+          "number": 22,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 08:27:51.297040",
+          "completed_at_database_time": "2026-05-27 09:04:57.443762",
+          "parameters": {
+            "dirichlet_alpha": 0.33394867585778776,
+            "dirichlet_mix": 0.4973875488043349,
+            "entropy_bonus": 0.038514050330741886,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 82,
+            "lr": 0.002292656339844076,
+            "mcts_sims": 8,
+            "q_scale": 22.834935262453083,
+            "selfplay_games": 4095,
+            "time_discount": 0.9810204963184378,
+            "weight_decay": 7.497563767702877e-06
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.26171875,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.26171875,
+            "vs_heuristic_winrate": 0.0078125,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.77734375
+          }
+        },
+        {
+          "number": 23,
+          "state": "PRUNED",
+          "started_at_database_time": "2026-05-27 09:04:57.451095",
+          "completed_at_database_time": "2026-05-27 09:04:57.490452",
+          "parameters": {
+            "dirichlet_alpha": 0.16400986463395403,
+            "dirichlet_mix": 0.3965433062008228,
+            "entropy_bonus": 0.02645919419649246,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 47,
+            "lr": 0.00010217557157432292,
+            "mcts_sims": 32,
+            "q_scale": 12.39851985769645,
+            "selfplay_games": 4095,
+            "time_discount": 0.9994020047634659,
+            "weight_decay": 4.2231601214444294e-05
+          },
+          "objectives": [],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 24,
+          "state": "PRUNED",
+          "started_at_database_time": "2026-05-27 09:04:57.495001",
+          "completed_at_database_time": "2026-05-27 09:04:57.532547",
+          "parameters": {
+            "dirichlet_alpha": 0.7930985406338406,
+            "dirichlet_mix": 0.10264281320042384,
+            "entropy_bonus": 0.042266107566046866,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 83,
+            "lr": 0.0013754374477030933,
+            "mcts_sims": 32,
+            "q_scale": 29.571200346217736,
+            "selfplay_games": 4095,
+            "time_discount": 0.9947085581142964,
+            "weight_decay": 3.9158101669373834e-05
+          },
+          "objectives": [],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 25,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 09:04:57.538029",
+          "completed_at_database_time": "2026-05-27 09:42:25.304814",
+          "parameters": {
+            "dirichlet_alpha": 0.4584296805400974,
+            "dirichlet_mix": 0.3324399281179552,
+            "entropy_bonus": 0.023223272473634114,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 56,
+            "lr": 0.003960026023375782,
+            "mcts_sims": 16,
+            "q_scale": 25.01310626248261,
+            "selfplay_games": 4095,
+            "time_discount": 0.9876666150401018,
+            "weight_decay": 3.753313322297009e-06
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.13020833333333334,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.13020833333333334,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.390625
+          }
+        },
+        {
+          "number": 26,
+          "state": "PRUNED",
+          "started_at_database_time": "2026-05-27 09:42:25.310936",
+          "completed_at_database_time": "2026-05-27 09:42:25.350525",
+          "parameters": {
+            "dirichlet_alpha": 0.22775221223345893,
+            "dirichlet_mix": 0.4415362615441506,
+            "entropy_bonus": 0.03204330780482536,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 75,
+            "lr": 9.764710695971025e-05,
+            "mcts_sims": 64,
+            "q_scale": 20.86799889906122,
+            "selfplay_games": 4095,
+            "time_discount": 0.9974125136280506,
+            "weight_decay": 0.0003456670533495002
+          },
+          "objectives": [],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 27,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 09:42:25.355181",
+          "completed_at_database_time": "2026-05-27 10:18:46.196389",
+          "parameters": {
+            "dirichlet_alpha": 0.10790690561354195,
+            "dirichlet_mix": 0.274256146186315,
+            "entropy_bonus": 0.04323032775344638,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 43,
+            "lr": 0.0008104716247102799,
+            "mcts_sims": 8,
+            "q_scale": 25.818736786966184,
+            "selfplay_games": 4095,
+            "time_discount": 0.9926409855330872,
+            "weight_decay": 3.603902910728758e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.2955729166666667,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.2955729166666667,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.88671875
+          }
+        },
+        {
+          "number": 28,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 10:18:46.202417",
+          "completed_at_database_time": "2026-05-27 10:55:24.257135",
+          "parameters": {
+            "dirichlet_alpha": 0.6644299465192074,
+            "dirichlet_mix": 0.45895123356225614,
+            "entropy_bonus": 0.03536169957640528,
+            "learner_batch": 128,
+            "learner_steps_per_iter": 60,
+            "lr": 0.00021612137655974747,
+            "mcts_sims": 8,
+            "q_scale": 13.386829336011436,
+            "selfplay_games": 1023,
+            "time_discount": 0.9966708059330427,
+            "weight_decay": 4.951418287553079e-06
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.16015625,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.16015625,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.48046875
+          }
+        },
+        {
+          "number": 29,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 10:55:24.263745",
+          "completed_at_database_time": "2026-05-27 11:32:05.516253",
+          "parameters": {
+            "dirichlet_alpha": 0.3401677902602187,
+            "dirichlet_mix": 0.34945386178057714,
+            "entropy_bonus": 0.013805980202991026,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 36,
+            "lr": 0.004243037151025122,
+            "mcts_sims": 16,
+            "q_scale": 4.313961914837893,
+            "selfplay_games": 4095,
+            "time_discount": 0.9884238192168793,
+            "weight_decay": 0.0070362475920408875
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.17838541666666666,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.17838541666666666,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.53515625
+          }
+        },
+        {
+          "number": 30,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 11:32:05.522394",
+          "completed_at_database_time": "2026-05-27 12:08:19.772525",
+          "parameters": {
+            "dirichlet_alpha": 0.20989910507327378,
+            "dirichlet_mix": 0.40531108057556064,
+            "entropy_bonus": 0.028361301568952956,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 16,
+            "lr": 0.0010561079642898098,
+            "mcts_sims": 64,
+            "q_scale": 22.495455898780698,
+            "selfplay_games": 511,
+            "time_discount": 0.999790115125922,
+            "weight_decay": 3.4088135775963314e-06
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.12890625,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.12890625,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.38671875
+          }
+        },
+        {
+          "number": 31,
+          "state": "PRUNED",
+          "started_at_database_time": "2026-05-27 12:08:19.778649",
+          "completed_at_database_time": "2026-05-27 12:08:19.817422",
+          "parameters": {
+            "dirichlet_alpha": 0.037348091496575496,
+            "dirichlet_mix": 0.36405260316427784,
+            "entropy_bonus": 0.0010573371703675727,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 101,
+            "lr": 4.450679979038845e-05,
+            "mcts_sims": 32,
+            "q_scale": 7.783834294556314,
+            "selfplay_games": 4095,
+            "time_discount": 0.9831123560665672,
+            "weight_decay": 0.002087805775219682
+          },
+          "objectives": [],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 32,
+          "state": "PRUNED",
+          "started_at_database_time": "2026-05-27 12:08:19.822382",
+          "completed_at_database_time": "2026-05-27 12:08:19.867147",
+          "parameters": {
+            "dirichlet_alpha": 0.03630585729119495,
+            "dirichlet_mix": 0.30725281473805316,
+            "entropy_bonus": 0.004601896071552708,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 126,
+            "lr": 0.00017033061261159256,
+            "mcts_sims": 32,
+            "q_scale": 8.360741972467865,
+            "selfplay_games": 4095,
+            "time_discount": 0.9853145118307227,
+            "weight_decay": 0.0007363519884157299
+          },
+          "objectives": [],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 33,
+          "state": "PRUNED",
+          "started_at_database_time": "2026-05-27 12:08:19.871535",
+          "completed_at_database_time": "2026-05-27 12:08:19.909362",
+          "parameters": {
+            "dirichlet_alpha": 0.05346791031899601,
+            "dirichlet_mix": 0.4759205646346732,
+            "entropy_bonus": 0.009518390331867294,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 97,
+            "lr": 4.937302351521346e-05,
+            "mcts_sims": 64,
+            "q_scale": 16.73828687914535,
+            "selfplay_games": 4095,
+            "time_discount": 0.989488411388487,
+            "weight_decay": 2.5255894410640533e-05
+          },
+          "objectives": [],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 34,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 12:08:19.913819",
+          "completed_at_database_time": "2026-05-27 12:44:07.196832",
+          "parameters": {
+            "dirichlet_alpha": 0.05661512546092852,
+            "dirichlet_mix": 0.4253022190980287,
+            "entropy_bonus": 0.019682708777333337,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 110,
+            "lr": 0.0005203502733059388,
+            "mcts_sims": 16,
+            "q_scale": 1.94450437308008,
+            "selfplay_games": 4095,
+            "time_discount": 0.9864684123536805,
+            "weight_decay": 0.00010341330706552286
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.18229166666666666,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.18229166666666666,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.546875
+          }
+        },
+        {
+          "number": 35,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 12:44:07.203489",
+          "completed_at_database_time": "2026-05-27 13:20:48.901868",
+          "parameters": {
+            "dirichlet_alpha": 0.3400474147631727,
+            "dirichlet_mix": 0.3696710212327503,
+            "entropy_bonus": 0.03644645394194852,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 77,
+            "lr": 0.004767535036179084,
+            "mcts_sims": 8,
+            "q_scale": 27.869481845165428,
+            "selfplay_games": 4095,
+            "time_discount": 0.9838418076492698,
+            "weight_decay": 0.003055500773238494
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.036458333333333336,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.036458333333333336,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.109375
+          }
+        },
+        {
+          "number": 36,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 13:20:48.908492",
+          "completed_at_database_time": "2026-05-27 13:57:18.818109",
+          "parameters": {
+            "dirichlet_alpha": 0.15729643067607532,
+            "dirichlet_mix": 0.27384131751541047,
+            "entropy_bonus": 0.044525817593597555,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 65,
+            "lr": 0.0015050038282444923,
+            "mcts_sims": 32,
+            "q_scale": 10.036537549164205,
+            "selfplay_games": 511,
+            "time_discount": 0.9911937284941532,
+            "weight_decay": 8.161471175516006e-06
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.10026041666666667,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.10026041666666667,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.30078125
+          }
+        },
+        {
+          "number": 37,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 13:57:18.824115",
+          "completed_at_database_time": "2026-05-27 14:34:12.107842",
+          "parameters": {
+            "dirichlet_alpha": 0.08146139207870907,
+            "dirichlet_mix": 0.4045419569438656,
+            "entropy_bonus": 0.029252924231882842,
+            "learner_batch": 128,
+            "learner_steps_per_iter": 57,
+            "lr": 0.00022473120272877904,
+            "mcts_sims": 8,
+            "q_scale": 22.747147956887908,
+            "selfplay_games": 2047,
+            "time_discount": 0.9980609878430188,
+            "weight_decay": 6.409210153946376e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.13020833333333334,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.13020833333333334,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.390625
+          }
+        },
+        {
+          "number": 38,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 14:34:12.114645",
+          "completed_at_database_time": "2026-05-27 15:10:48.879211",
+          "parameters": {
+            "dirichlet_alpha": 0.27990102565163655,
+            "dirichlet_mix": 0.2376718684771002,
+            "entropy_bonus": 0.03972330932017085,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 83,
+            "lr": 3.4012058538153145e-05,
+            "mcts_sims": 16,
+            "q_scale": 26.5553710980261,
+            "selfplay_games": 4095,
+            "time_discount": 0.9933550329060404,
+            "weight_decay": 0.00023771390169396707
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.2513020833333333,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.2513020833333333,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.75390625
+          }
+        },
+        {
+          "number": 39,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 15:10:48.886115",
+          "completed_at_database_time": "2026-05-27 15:46:36.808087",
+          "parameters": {
+            "dirichlet_alpha": 0.49196598316413614,
+            "dirichlet_mix": 0.4659221789600714,
+            "entropy_bonus": 0.034262541904966734,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 118,
+            "lr": 0.00010586528799730031,
+            "mcts_sims": 64,
+            "q_scale": 20.826154932716456,
+            "selfplay_games": 1023,
+            "time_discount": 0.9956780874901515,
+            "weight_decay": 0.0008255771190517395
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.3059895833333333,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.3059895833333333,
+            "vs_heuristic_winrate": 0.01171875,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.90625
+          }
+        },
+        {
+          "number": 40,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 15:46:36.814915",
+          "completed_at_database_time": "2026-05-27 16:23:08.913344",
+          "parameters": {
+            "dirichlet_alpha": 0.5170793019835875,
+            "dirichlet_mix": 0.46043733047478724,
+            "entropy_bonus": 0.033306778979012276,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 70,
+            "lr": 0.002736076982377354,
+            "mcts_sims": 64,
+            "q_scale": 23.365210132822074,
+            "selfplay_games": 1023,
+            "time_discount": 0.9948339128931079,
+            "weight_decay": 1.76752838036137e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.040364583333333336,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.040364583333333336,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.12109375
+          }
+        },
+        {
+          "number": 41,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 16:23:08.919313",
+          "completed_at_database_time": "2026-05-27 16:59:19.319460",
+          "parameters": {
+            "dirichlet_alpha": 0.43019666924899497,
+            "dirichlet_mix": 0.4678657345359199,
+            "entropy_bonus": 0.030056820639453738,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 116,
+            "lr": 0.00013986603459459107,
+            "mcts_sims": 64,
+            "q_scale": 20.618434362933606,
+            "selfplay_games": 1023,
+            "time_discount": 0.9960486671781585,
+            "weight_decay": 0.0014701850813039175
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.13020833333333334,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.13020833333333334,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.390625
+          }
+        },
+        {
+          "number": 42,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 16:59:19.327457",
+          "completed_at_database_time": "2026-05-27 17:34:35.636077",
+          "parameters": {
+            "dirichlet_alpha": 0.6801729932922859,
+            "dirichlet_mix": 0.493068793396376,
+            "entropy_bonus": 0.03539264916759809,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 113,
+            "lr": 7.048977812563823e-05,
+            "mcts_sims": 64,
+            "q_scale": 18.4033241774353,
+            "selfplay_games": 1023,
+            "time_discount": 0.9981388623650177,
+            "weight_decay": 0.0008903273426135935
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.3177083333333333,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.3177083333333333,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.00390625,
+            "vs_random_winrate": 0.94921875
+          }
+        },
+        {
+          "number": 43,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 17:34:35.642340",
+          "completed_at_database_time": "2026-05-27 18:10:11.894260",
+          "parameters": {
+            "dirichlet_alpha": 0.7699735994327723,
+            "dirichlet_mix": 0.49740108715178977,
+            "entropy_bonus": 0.03485187331599152,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 117,
+            "lr": 2.34364505780032e-05,
+            "mcts_sims": 64,
+            "q_scale": 18.260397636099185,
+            "selfplay_games": 1023,
+            "time_discount": 0.9985753303454497,
+            "weight_decay": 0.0005620706044407756
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.30859375,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.30859375,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.92578125
+          }
+        },
+        {
+          "number": 44,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 18:10:11.900830",
+          "completed_at_database_time": "2026-05-27 18:46:19.901675",
+          "parameters": {
+            "dirichlet_alpha": 0.7191724036203541,
+            "dirichlet_mix": 0.4827316198825353,
+            "entropy_bonus": 0.03802932121346539,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 89,
+            "lr": 1.3913634179837734e-05,
+            "mcts_sims": 64,
+            "q_scale": 17.92388438372452,
+            "selfplay_games": 1023,
+            "time_discount": 0.9986668184245823,
+            "weight_decay": 0.0005911836852453906
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.23046875,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.23046875,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.69140625
+          }
+        },
+        {
+          "number": 45,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 18:46:19.907606",
+          "completed_at_database_time": "2026-05-27 19:22:02.325991",
+          "parameters": {
+            "dirichlet_alpha": 0.9723433450798293,
+            "dirichlet_mix": 0.4945383217800642,
+            "entropy_bonus": 0.04717819871899444,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 65,
+            "lr": 2.2653822931426404e-05,
+            "mcts_sims": 64,
+            "q_scale": 16.43266675251325,
+            "selfplay_games": 1023,
+            "time_discount": 0.9975958619521963,
+            "weight_decay": 1.2372834997226584e-05
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.21484375,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.21484375,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.64453125
+          }
+        },
+        {
+          "number": 46,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 19:22:02.332196",
+          "completed_at_database_time": "2026-05-27 19:58:24.590631",
+          "parameters": {
+            "dirichlet_alpha": 0.6083312797681405,
+            "dirichlet_mix": 0.438519028059395,
+            "entropy_bonus": 0.049991259421486946,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 51,
+            "lr": 6.013639682041793e-05,
+            "mcts_sims": 64,
+            "q_scale": 27.20868005791058,
+            "selfplay_games": 1023,
+            "time_discount": 0.997128224173305,
+            "weight_decay": 0.004558510174057039
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.20442708333333334,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.20442708333333334,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.61328125
+          }
+        },
+        {
+          "number": 47,
+          "state": "PRUNED",
+          "started_at_database_time": "2026-05-27 19:58:24.596932",
+          "completed_at_database_time": "2026-05-27 19:58:24.636543",
+          "parameters": {
+            "dirichlet_alpha": 0.8699927301049911,
+            "dirichlet_mix": 0.4980917082416684,
+            "entropy_bonus": 0.03140637515034851,
+            "learner_batch": 128,
+            "learner_steps_per_iter": 118,
+            "lr": 2.0215129310338992e-05,
+            "mcts_sims": 64,
+            "q_scale": 14.283492225403487,
+            "selfplay_games": 2047,
+            "time_discount": 0.9983701338283687,
+            "weight_decay": 2.2968314203296144e-05
+          },
+          "objectives": [],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 48,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 19:58:24.641097",
+          "completed_at_database_time": "2026-05-27 20:35:04.001093",
+          "parameters": {
+            "dirichlet_alpha": 0.6247791277111966,
+            "dirichlet_mix": 0.4223135905377491,
+            "entropy_bonus": 0.041161479363116635,
+            "learner_batch": 256,
+            "learner_steps_per_iter": 38,
+            "lr": 0.006289685509752953,
+            "mcts_sims": 64,
+            "q_scale": 24.358733665924966,
+            "selfplay_games": 1023,
+            "time_discount": 0.9989941657419037,
+            "weight_decay": 0.0003905648133106023
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.10026041666666667,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.10026041666666667,
+            "vs_heuristic_winrate": 0.0,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.30078125
+          }
+        },
+        {
+          "number": 49,
+          "state": "COMPLETE",
+          "started_at_database_time": "2026-05-27 20:35:04.007935",
+          "completed_at_database_time": "2026-05-27 21:10:43.401469",
+          "parameters": {
+            "dirichlet_alpha": 0.28364742774002366,
+            "dirichlet_mix": 0.18497169766450727,
+            "entropy_bonus": 0.03828389564227445,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 90,
+            "lr": 0.003103194262297075,
+            "mcts_sims": 64,
+            "q_scale": 18.772958446268227,
+            "selfplay_games": 1023,
+            "time_discount": 0.9997272478547357,
+            "weight_decay": 0.00018820873087819841
+          },
+          "objectives": [
+            {
+              "objective": 0,
+              "value": 0.3138020833333333,
+              "value_type": "FINITE"
+            }
+          ],
+          "recorded_attributes": {
+            "combined_winrate": 0.3138020833333333,
+            "vs_heuristic_winrate": 0.00390625,
+            "vs_opus_winrate": 0.0,
+            "vs_random_winrate": 0.9375
+          }
+        },
+        {
+          "number": 50,
+          "state": "PRUNED",
+          "started_at_database_time": "2026-05-27 21:10:43.408000",
+          "completed_at_database_time": "2026-05-27 21:10:43.446778",
+          "parameters": {
+            "dirichlet_alpha": 0.28507397855061606,
+            "dirichlet_mix": 0.16862701504543218,
+            "entropy_bonus": 0.04529678596148144,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 92,
+            "lr": 0.002930603329687574,
+            "mcts_sims": 64,
+            "q_scale": 18.893398489370316,
+            "selfplay_games": 2047,
+            "time_discount": 0.9997561965768031,
+            "weight_decay": 0.0001710731347682352
+          },
+          "objectives": [],
+          "recorded_attributes": {}
+        },
+        {
+          "number": 51,
+          "state": "RUNNING",
+          "started_at_database_time": "2026-05-27 21:10:43.451208",
+          "completed_at_database_time": null,
+          "parameters": {
+            "dirichlet_alpha": 0.25375744630286595,
+            "dirichlet_mix": 0.18200362284847488,
+            "entropy_bonus": 0.03746764413085957,
+            "learner_batch": 512,
+            "learner_steps_per_iter": 110,
+            "lr": 0.001825883670333192,
+            "mcts_sims": 64,
+            "q_scale": 19.284563021153946,
+            "selfplay_games": 1023,
+            "time_discount": 0.9984412953797986,
+            "weight_decay": 6.43609888688634e-05
+          },
+          "objectives": [],
+          "recorded_attributes": {}
+        }
+      ]
+    }
+  ]
+}

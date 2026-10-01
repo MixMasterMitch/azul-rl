@@ -45,10 +45,18 @@ class UnifiedEvalConfig:
     num_workers: int = 1
     inference_device: str = "cpu"
     search_backend: str = "one_ply"
+    search_tree_core: str = "python"
+    root_noise_scale: float = 1.0
+    max_root_candidates: int = 16
+    chance_samples: int = 4
+    inference_cache_size: int = 0
     astra_opponent_fraction: float = 0.125
 
     def __post_init__(self) -> None:
-        if not math.isfinite(self.astra_opponent_fraction) or not 0 <= self.astra_opponent_fraction <= 1:
+        if (
+            not math.isfinite(self.astra_opponent_fraction)
+            or not 0 <= self.astra_opponent_fraction <= 1
+        ):
             raise ValueError("astra_opponent_fraction must be between zero and one")
 
 
@@ -61,7 +69,9 @@ class PairwiseResult:
     is_tie: bool = False
 
 
-def _distribute_games(total: int, w2: float, w3: float, w4: float) -> Tuple[int, int, int]:
+def _distribute_games(
+    total: int, w2: float, w3: float, w4: float
+) -> Tuple[int, int, int]:
     total_weight = w2 + w3 + w4
     if total_weight <= 0:
         return total, 0, 0
@@ -86,14 +96,22 @@ def extract_pairwise_results(
         if w == BE.SHARED_VICTORY:
             if winning_mask is None and num_players != 2:
                 continue
-            winners = (winning_mask[b].nonzero().flatten().tolist() if winning_mask is not None else [0, 1])
+            winners = (
+                winning_mask[b].nonzero().flatten().tolist()
+                if winning_mask is not None
+                else [0, 1]
+            )
             for p in winners:
                 for q in range(num_players):
                     left, right = seat_names[b][p], seat_names[b][q]
                     if p == q or left == right:
                         continue
                     tied = q in winners
-                    results.append(PairwiseResult(left, right, 0.5 if tied else 1.0, num_players, tied))
+                    results.append(
+                        PairwiseResult(
+                            left, right, 0.5 if tied else 1.0, num_players, tied
+                        )
+                    )
             continue
         if w < 0:
             continue
@@ -105,7 +123,12 @@ def extract_pairwise_results(
             if loser_name == winner_name:
                 continue
             results.append(
-                PairwiseResult(winner=winner_name, loser=loser_name, weight=1.0, num_players=num_players)
+                PairwiseResult(
+                    winner=winner_name,
+                    loser=loser_name,
+                    weight=1.0,
+                    num_players=num_players,
+                )
             )
     return results
 
@@ -128,9 +151,13 @@ def _run_multiplayer_games(
     other_names = [n for n in policies if n != eval_agent_name]
     non_astra_names = [name for name in other_names if name != "astra"]
     if astra_opponent_fraction > 0 and "astra" not in other_names:
-        raise ValueError("Astra evaluation was requested but no Astra policy was supplied")
+        raise ValueError(
+            "Astra evaluation was requested but no Astra policy was supplied"
+        )
     if astra_opponent_fraction < 1 and not non_astra_names:
-        raise ValueError("Evaluation requires a non-Astra opponent when Astra fraction is below one")
+        raise ValueError(
+            "Evaluation requires a non-Astra opponent when Astra fraction is below one"
+        )
 
     seat_names: List[List[str]] = []
     for _ in range(num_games):
@@ -165,16 +192,26 @@ def _run_multiplayer_games(
                 policy_for_game.setdefault(name, []).append(b)
 
         for name, game_indices in policy_for_game.items():
-            stage_name = name if name in {"eval_agent", "random", "heuristic", "heuristic_opus", "astra"} else "league"
+            stage_name = (
+                name
+                if name
+                in {"eval_agent", "random", "heuristic", "heuristic_opus", "astra"}
+                else "league"
+            )
             with maybe_time(perf, f"eval_{num_players}p_policy_{stage_name}"):
                 idx = torch.tensor(game_indices, dtype=torch.long, device=device)
                 sub = engine.index_select(idx)
                 sub_actions = policies[name](sub)
                 if not sub.legal_action_mask().gather(1, sub_actions[:, None]).all():
-                    raise RuntimeError(f"Evaluation policy {name} returned an illegal action")
+                    raise RuntimeError(
+                        f"Evaluation policy {name} returned an illegal action"
+                    )
                 actions.index_copy_(0, idx, sub_actions)
             if perf is not None:
-                perf.add_count(f"eval_{num_players}p_policy_{stage_name}_positions", len(game_indices))
+                perf.add_count(
+                    f"eval_{num_players}p_policy_{stage_name}_positions",
+                    len(game_indices),
+                )
 
         with maybe_time(perf, f"eval_{num_players}p_env_step"):
             engine.step(actions)
@@ -183,7 +220,9 @@ def _run_multiplayer_games(
     winners = engine.get_winners()
     finished = engine.ended
     shared_mask = _shared_victory_mask(engine, torch.arange(num_games), num_players)
-    pairwise = extract_pairwise_results(seat_names, winners, finished, num_players, shared_mask)
+    pairwise = extract_pairwise_results(
+        seat_names, winners, finished, num_players, shared_mask
+    )
 
     wins = losses = shared = 0
     shares = [0.0] * num_games
@@ -218,10 +257,15 @@ def _run_multiplayer_games(
         selected = [b for b, names in enumerate(seat_names) if "astra" in names]
         completed = [b for b in selected if finished[b]]
         credit = sum(shares[b] for b in completed)
-        metrics.update({f"games_{suffix}": float(len(selected)), f"finished_{suffix}": float(len(completed)),
-                        f"unfinished_{suffix}": float(len(selected) - len(completed)),
-                        f"win_share_sum_{suffix}": credit,
-                        f"eval_win_share_{suffix}": credit / max(len(completed), 1)})
+        metrics.update(
+            {
+                f"games_{suffix}": float(len(selected)),
+                f"finished_{suffix}": float(len(completed)),
+                f"unfinished_{suffix}": float(len(selected) - len(completed)),
+                f"win_share_sum_{suffix}": credit,
+                f"eval_win_share_{suffix}": credit / max(len(completed), 1),
+            }
+        )
     return pairwise, metrics
 
 
@@ -233,8 +277,6 @@ def run_unified_eval(
     hidden: int = 256,
     arch: str = "attn",
 ) -> Dict:
-    from ..net import encoder as ENC
-
     torch.set_num_threads(1)
     t_start = time.monotonic()
     perf = PerfCounters(enabled=config.profile, device="cpu")
@@ -249,18 +291,32 @@ def run_unified_eval(
     def _make_net_policy(net: M.AzulNet, num_sims: int, num_players: int):
         inference = InferenceModel(net, config.inference_device)
         calls = 0
+
         def choose(engine: BE.BatchedEngine) -> torch.Tensor:
             nonlocal calls
             calls += 1
             with torch.no_grad():
                 act, _ = G.gumbel_root_act(
-                    engine, inference, num_sims=num_sims, temperature=config.temperature,
+                    engine,
+                    inference,
+                    num_sims=num_sims,
+                    temperature=config.temperature,
                     q_scale=config.q_scale,
-                    search_config=SearchConfig(backend=config.search_backend,
-                        num_simulations=num_sims, temperature=config.temperature,
-                        q_scale=config.q_scale, seed=seed * 100003 + calls),
+                    search_config=SearchConfig(
+                        backend=config.search_backend,
+                        tree_core=config.search_tree_core,
+                        root_noise_scale=config.root_noise_scale,
+                        max_root_candidates=config.max_root_candidates,
+                        chance_samples=config.chance_samples,
+                        inference_cache_size=config.inference_cache_size,
+                        num_simulations=num_sims,
+                        temperature=config.temperature,
+                        q_scale=config.q_scale,
+                        seed=seed * 100003 + calls,
+                    ),
                 )
             return act
+
         return choose
 
     class _BotPolicy:
@@ -269,7 +325,9 @@ def run_unified_eval(
             self.num_players = num_players
 
         def __call__(self, engine: BE.BatchedEngine) -> torch.Tensor:
-            actions = torch.zeros((engine.batch_size,), dtype=torch.long, device=engine.device)
+            actions = torch.zeros(
+                (engine.batch_size,), dtype=torch.long, device=engine.device
+            )
             for b in range(engine.batch_size):
                 if engine.ended[b]:
                     continue
@@ -329,12 +387,19 @@ def run_unified_eval(
     wall_s = time.monotonic() - t_start
     all_metrics["eval_wall_s"] = round(wall_s, 3)
     if config.profile and resource_start is not None:
-        all_metrics.update(resource_delta(resource_start, resource_snapshot(), prefix="eval_profile"))
+        all_metrics.update(
+            resource_delta(resource_start, resource_snapshot(), prefix="eval_profile")
+        )
         all_metrics.update(perf.snapshot(prefix="eval_profile"))
 
     pairwise_list = [
-        {"winner": pr.winner, "loser": pr.loser, "weight": pr.weight,
-         "num_players": pr.num_players, "is_tie": pr.is_tie}
+        {
+            "winner": pr.winner,
+            "loser": pr.loser,
+            "weight": pr.weight,
+            "num_players": pr.num_players,
+            "is_tie": pr.is_tie,
+        }
         for pr in all_pairwise
     ]
 
@@ -371,12 +436,23 @@ def _unified_eval_worker(
     except Exception as exc:
         import traceback
 
-        queue.put((iteration, worker_id, {"error": str(exc), "traceback": traceback.format_exc()}))
+        queue.put(
+            (
+                iteration,
+                worker_id,
+                {"error": str(exc), "traceback": traceback.format_exc()},
+            )
+        )
 
 
 def _merge_eval_results(parts: List[Dict]) -> Dict:
     if not parts:
-        return {"pairwise": [], "metrics": {}, "eval_wall_s": 0.0, "league_opponents": []}
+        return {
+            "pairwise": [],
+            "metrics": {},
+            "eval_wall_s": 0.0,
+            "league_opponents": [],
+        }
     merged_pairwise: List[dict] = []
     merged_metrics: Dict[str, float] = {}
     league_opponents: List[str] = []
@@ -386,7 +462,9 @@ def _merge_eval_results(parts: List[Dict]) -> Dict:
             return part
         merged_pairwise.extend(part.get("pairwise", []))
         for k, v in part.get("metrics", {}).items():
-            if isinstance(v, (int, float)) and not k.startswith(("eval_winrate_", "eval_match_score_", "eval_win_share_")):
+            if isinstance(v, (int, float)) and not k.startswith(
+                ("eval_winrate_", "eval_match_score_", "eval_win_share_")
+            ):
                 merged_metrics[k] = merged_metrics.get(k, 0.0) + float(v)
         wall_s = max(wall_s, float(part.get("eval_wall_s", 0.0)))
         if not league_opponents:
@@ -397,16 +475,21 @@ def _merge_eval_results(parts: List[Dict]) -> Dict:
             wins = merged_metrics.get(f"wins_{players}p", 0)
             shared = merged_metrics.get(f"shared_{players}p", 0)
             merged_metrics[f"eval_winrate_{players}p"] = wins / max(n, 1)
-            credit = merged_metrics.get(f"win_share_sum_{players}p", wins + 0.5 * shared)
+            credit = merged_metrics.get(
+                f"win_share_sum_{players}p", wins + 0.5 * shared
+            )
             merged_metrics[f"eval_match_score_{players}p"] = credit / max(n, 1)
             merged_metrics[f"eval_win_share_{players}p"] = credit / max(n, 1)
         suffix = f"{players}p_{'vs' if players == 2 else 'with'}_astra"
         if f"games_{suffix}" in merged_metrics:
-            merged_metrics[f"eval_win_share_{suffix}"] = (merged_metrics[f"win_share_sum_{suffix}"]
-                                                           / max(merged_metrics[f"finished_{suffix}"], 1))
+            merged_metrics[f"eval_win_share_{suffix}"] = merged_metrics[
+                f"win_share_sum_{suffix}"
+            ] / max(merged_metrics[f"finished_{suffix}"], 1)
     identities = [part.get("astra_identity", {}) for part in parts]
     if any(identity != identities[0] for identity in identities):
-        return {"error": "Astra configuration/native identity differed between evaluation workers"}
+        return {
+            "error": "Astra configuration/native identity differed between evaluation workers"
+        }
     merged_metrics["eval_wall_s"] = wall_s
     return {
         "pairwise": merged_pairwise,
@@ -418,7 +501,9 @@ def _merge_eval_results(parts: List[Dict]) -> Dict:
 
 
 class UnifiedEvalHandle:
-    def __init__(self, config: UnifiedEvalConfig, hidden: int = 256, arch: str = "attn") -> None:
+    def __init__(
+        self, config: UnifiedEvalConfig, hidden: int = 256, arch: str = "attn"
+    ) -> None:
         self._config, self._hidden, self._arch = config, hidden, arch
         self._mp_ctx = multiprocessing.get_context("spawn")
         self._processes: list[multiprocessing.Process] = []
@@ -434,20 +519,33 @@ class UnifiedEvalHandle:
         # Completed subprocesses may still have undelivered results.
         return self._iteration_tag is not None
 
-    def launch(self, net_state_dict: Dict[str, torch.Tensor], league_checkpoint_paths: List[str],
-               iteration: int, seed: int, context: dict | None = None) -> bool:
+    def launch(
+        self,
+        net_state_dict: Dict[str, torch.Tensor],
+        league_checkpoint_paths: List[str],
+        iteration: int,
+        seed: int,
+        context: dict | None = None,
+    ) -> bool:
         if self.is_active():
             return False
         if self._config.total_games <= 0:
             return False
         if self._config.inference_device.startswith("cuda"):
             from .reproducibility import capture_rng_state, restore_rng_state
+
             rng = capture_rng_state()
             self._iteration_tag = iteration
             self._context = dict(context or {})
             try:
-                self._immediate = run_unified_eval(net_state_dict, league_checkpoint_paths,
-                    self._config, seed, self._hidden, self._arch)
+                self._immediate = run_unified_eval(
+                    net_state_dict,
+                    league_checkpoint_paths,
+                    self._config,
+                    seed,
+                    self._hidden,
+                    self._arch,
+                )
             except Exception as exc:
                 self._immediate = {"error": str(exc)}
             finally:
@@ -461,11 +559,25 @@ class UnifiedEvalHandle:
         self._expected_workers = n
         self._pending = {}
         for worker in range(n):
-            shard = self._config.total_games // n + int(worker < self._config.total_games % n)
+            shard = self._config.total_games // n + int(
+                worker < self._config.total_games % n
+            )
             config = dataclasses.replace(self._config, total_games=shard)
-            proc = self._mp_ctx.Process(target=_unified_eval_worker,
-                args=(self._queue, net_state_dict, league_checkpoint_paths, config,
-                      iteration, seed, self._hidden, self._arch, worker), daemon=True)
+            proc = self._mp_ctx.Process(
+                target=_unified_eval_worker,
+                args=(
+                    self._queue,
+                    net_state_dict,
+                    league_checkpoint_paths,
+                    config,
+                    iteration,
+                    seed,
+                    self._hidden,
+                    self._arch,
+                    worker,
+                ),
+                daemon=True,
+            )
             proc.start()
             self._processes.append(proc)
         return True
@@ -492,7 +604,9 @@ class UnifiedEvalHandle:
         if len(self._pending) == self._expected_workers:
             return self._finish()
         if time.monotonic() - self._started > self._config.timeout_s:
-            return self._finish(error="evaluation timed out before all workers returned")
+            return self._finish(
+                error="evaluation timed out before all workers returned"
+            )
         if all(not p.is_alive() for p in self._processes):
             # join flushes worker queue feeder threads before the final drain.
             for p in self._processes:
@@ -503,8 +617,12 @@ class UnifiedEvalHandle:
             return self._finish(error="evaluation worker exited without a result")
         return None
 
-    def wait_and_collect(self, timeout: float | None = None) -> Optional[Tuple[int, Dict]]:
-        deadline = time.monotonic() + (timeout if timeout is not None else self._config.timeout_s)
+    def wait_and_collect(
+        self, timeout: float | None = None
+    ) -> Optional[Tuple[int, Dict]]:
+        deadline = time.monotonic() + (
+            timeout if timeout is not None else self._config.timeout_s
+        )
         while self.is_active():
             result = self.try_collect()
             if result is not None:
@@ -516,7 +634,11 @@ class UnifiedEvalHandle:
 
     def _finish(self, error: str | None = None) -> Tuple[int, Dict]:
         iteration = self._iteration_tag
-        result = ({"error": error} if error else _merge_eval_results([self._pending[k] for k in sorted(self._pending)]))
+        result = (
+            {"error": error}
+            if error
+            else _merge_eval_results([self._pending[k] for k in sorted(self._pending)])
+        )
         result["job_context"] = self._context
         self.cleanup()
         return iteration, result
