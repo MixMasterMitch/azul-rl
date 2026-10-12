@@ -83,13 +83,15 @@ class GameSession:
         result = []
         for player in range(self.num_players):
             score = int(self.engine.scores[0, player])
-            bonuses = (endgame_bonuses(self.engine.wall[0, player].tolist())
-                       if bool(self.engine.ended[0]) else {"rows": 0, "columns": 0, "colors": 0})
+            bonuses = endgame_bonuses(self.engine.wall[0, player].tolist())
+            bonus_points = sum(bonuses.values())
+            ended = bool(self.engine.ended[0])
             placement = self.scoring["placement"][player]
             floor = self.scoring["floor"][player]
-            earlier = score - placement - floor - sum(bonuses.values())
+            earlier = score - placement - floor - (bonus_points if ended else 0)
             result.append({"placement": placement, "floor": floor, **bonuses,
-                           "earlier_rounds": earlier, "total": score})
+                           "earlier_rounds": earlier,
+                           "total": score if ended else score + bonus_points})
         return result
 
     @property
@@ -164,6 +166,7 @@ class GameSession:
         """Serialize game state for the frontend."""
         engine = self.engine
         b = 0
+        score_breakdown = self.score_breakdown()
 
         # Build factory state
         factories = []
@@ -187,7 +190,7 @@ class GameSession:
                     None if v == -1 else ("first" if v == A.FLOOR_MARKER else int(v))
                     for v in slots
                 ],
-                "score": engine.scores[b, p].item(),
+                "score": score_breakdown[p]["total"],
             }
             players.append(player_data)
 
@@ -209,7 +212,7 @@ class GameSession:
             "updated_at": self.updated_at,
             "winner_seats": self.winner_seats(),
             "opponent_names": [entry["name"] for entry in self.opponent_info],
-            "score_breakdown": self.score_breakdown(),
+            "score_breakdown": score_breakdown,
             "num_players": self.num_players,
             "human_seat": self.human_seat,
             "opponents": self.opponents,
