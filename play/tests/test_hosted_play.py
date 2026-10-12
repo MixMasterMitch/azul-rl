@@ -221,15 +221,26 @@ def test_real_release_model_search_and_player_count(tmp_path):
     if not path.exists():
         pytest.skip('Run python -m play.scripts.prepare_release for artifact integration tests')
     service = PlayService(JsonPlayStore(str(tmp_path)), ModelRegistry(path))
-    game = service.create_game(2, 1, ['net:league:294'])
+    manifest = json.loads(path.read_text())
+    model_id = manifest['default_model_id']
+    game = service.create_game(2, 1, [model_id])
     result = service.step_ai(game['game_id'], expected_revision=0)
     assert result['revision'] == 1 and result['current_player'] == 1
-    assert 'net:league:294' not in {o['id'] for o in service.list_opponents(3)}
-    with pytest.raises(ValueError):
-        service.create_game(3, 0, ['net:league:294', 'random'])
+    supported = manifest['models'][model_id]['trained_player_counts']
+    if 3 in supported:
+        assert model_id in {o['id'] for o in service.list_opponents(3)}
+        assert service.create_game(3, 2, [model_id, 'random'])['num_players'] == 3
+    else:
+        assert model_id not in {o['id'] for o in service.list_opponents(3)}
+        with pytest.raises(ValueError):
+            service.create_game(3, 0, [model_id, 'random'])
+    for old_id, entry in manifest['models'].items():
+        if not entry.get('available_for_new_games', True):
+            with pytest.raises(ValueError):
+                service.create_game(2, 1, [old_id])
     with pytest.raises(ValueError):
         service.create_game(opponents=['net:/tmp/file.pt'])
-    assert service.readiness(True)['models'] == ['net:league:294']
+    assert set(service.readiness(True)['models']) == set(manifest['models'])
 
 
 @pytest.mark.parametrize('players', [2, 3, 4])

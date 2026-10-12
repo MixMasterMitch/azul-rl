@@ -115,8 +115,9 @@ including any intentional uncommitted changes. It runs backend and CDK tests on 
 builds a Linux amd64 image with CPU PyTorch and Astra, and completes 2p/3p/4p games
 inside a container with a read-only root filesystem. It then deploys a candidate
 Lambda version and checks real DynamoDB persistence, model availability, and
-latency. The warm AI-request p95 must be below 2 seconds and representative cold
-requests below 25 seconds. A first deployment exposes no API routes until these
+latency. The warm AI-request p95 must be below 2 seconds in the local container
+and below 5 seconds on AWS with the 1,024-simulation RL bot; representative cold
+requests must be below 25 seconds. A first deployment exposes no API routes until these
 checks pass. Updates keep the previous API and frontend live during validation.
 
 After validation, the workflow switches the `live` Lambda alias and CloudFront's
@@ -177,11 +178,16 @@ games without individual turn counts use four times the player count as their
 total-move cutoff.
 
 Human ratings appear after five first-place finishes (including shared wins).
-They use the existing Bradley–Terry fit against per-player-count bot anchors,
-with ties split evenly and calibrated ratings combined by physical games played.
-Leaderboard reads use stored human summaries and bundled bot ratings, without
-refitting the league. The original file-based `HumanRatingStore` remains available
-for older offline callers; hosted play uses transactional rating updates.
+Hosted play fits each table size separately against fixed anchors: random 1000,
+heuristic 2000, Opus 2250, Astra 2500, and the shared RL model 3000. The
+human score starts at a 1000 floor and can reach only the rung after the
+strongest opponent faced, topping out at 3500 against the RL model.
+Multiplayer games compare the human's
+finish with each rated bot at the table; unresolved ties split evenly. The
+combined rating is weighted by games played in each table size. Older saved
+profiles are refitted from their match records on read without changing their
+game history. The original file-based `HumanRatingStore` remains available for
+older offline callers; hosted play uses transactional rating updates.
 
 The API retains `/api/game`, `/api/game/<id>`, `/action`, `/step-ai`, and
 `/api/opponents`, and adds `/api/me`, `/api/games`, `/api/leaderboard`,

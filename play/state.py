@@ -13,6 +13,7 @@ import torch
 from agent.env import actions as A
 from agent.env.engine import GameEngine as BatchedEngine
 from agent.env.batched_engine import BatchedEngine as TorchEngine, _STATE_TENSOR_ATTRS
+from .scoring import endgame_bonuses, round_change
 
 
 def now() -> str:
@@ -42,11 +43,18 @@ class GameSession:
     updated_at: str = field(default_factory=now)
     opponent_info: list[dict] = field(default_factory=list)
     rating_recorded: bool = False
+    scoring: dict[str, list[int]] | None = None
     engine: BatchedEngine = field(init=False)
 
     def __post_init__(self) -> None:
         if self.turn_counts == []:
             self.turn_counts = [0] * self.num_players
+        if self.scoring is None:
+            self.scoring = {"placement": [0] * self.num_players, "floor": [0] * self.num_players}
+        elif (set(self.scoring) != {"placement", "floor"} or
+              any(len(values) != self.num_players or any(type(value) is not int for value in values)
+                  for values in self.scoring.values())):
+            raise ValueError("Invalid saved score breakdown")
         self.engine = BatchedEngine(
             batch_size=1,
             num_players=self.num_players,
@@ -58,6 +66,31 @@ class GameSession:
         self.move_number += 1
         if self.turn_counts is not None:
             self.turn_counts[seat] += 1
+
+    def step(self, action: int, seat: int) -> None:
+        before_scores = self.engine.scores[0, :self.num_players].tolist()
+        before_walls = self.engine.wall[0, :self.num_players].tolist()
+        self.engine.step(torch.tensor([action], dtype=torch.long))
+        for player in range(self.num_players):
+            placement, floor = round_change(
+                before_walls[player], self.engine.wall[0, player].tolist(),
+                before_scores[player], int(self.engine.scores[0, player]), bool(self.engine.ended[0]))
+            self.scoring["placement"][player] += placement
+            self.scoring["floor"][player] += floor
+        self.record_turn(seat)
+
+    def score_breakdown(self) -> list[dict[str, int]]:
+        result = []
+        for player in range(self.num_players):
+            score = int(self.engine.scores[0, player])
+            bonuses = (endgame_bonuses(self.engine.wall[0, player].tolist())
+                       if bool(self.engine.ended[0]) else {"rows": 0, "columns": 0, "colors": 0})
+            placement = self.scoring["placement"][player]
+            floor = self.scoring["floor"][player]
+            earlier = score - placement - floor - sum(bonuses.values())
+            result.append({"placement": placement, "floor": floor, **bonuses,
+                           "earlier_rounds": earlier, "total": score})
+        return result
 
     @property
     def can_abandon(self) -> bool:
@@ -85,6 +118,7 @@ class GameSession:
                 "game_id", "num_players", "human_seat", "opponents", "user_sub", "seed", "revision",
                 "move_number", "status", "created_at", "updated_at", "opponent_info", "rating_recorded")},
             "turn_counts": self.turn_counts,
+            "scoring": self.scoring,
             "winner_seats": self.winner_seats(),
             "scores": self.engine.scores[0, :self.num_players].tolist(),
             "engine": self.engine.state_dict(),
@@ -97,7 +131,7 @@ class GameSession:
         session = cls(**{k: record[k] for k in (
             "game_id", "num_players", "human_seat", "opponents", "user_sub", "seed", "revision",
             "move_number", "status", "created_at", "updated_at", "opponent_info", "rating_recorded")},
-            turn_counts=record.get("turn_counts"))
+            turn_counts=record.get("turn_counts"), scoring=record.get("scoring"))
         if record["schema_version"] == 2:
             session.engine = BatchedEngine.from_state_dict(record["engine"])
             if session.engine.batch_size != 1 or session.engine.num_players != session.num_players:
@@ -175,6 +209,7 @@ class GameSession:
             "updated_at": self.updated_at,
             "winner_seats": self.winner_seats(),
             "opponent_names": [entry["name"] for entry in self.opponent_info],
+            "score_breakdown": self.score_breakdown(),
             "num_players": self.num_players,
             "human_seat": self.human_seat,
             "opponents": self.opponents,

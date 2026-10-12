@@ -11,7 +11,7 @@ from agent.train import ranking as R
 from agent.train import rating_display as D
 from agent.train.model_registry import ModelRegistry
 from play.models import ModelCatalog
-from play.ratings import public_profile, record_result
+from play.ratings import fresh_user, public_profile, record_result
 
 
 @pytest.mark.parametrize('references', [R.DEFAULT_REFERENCE_ANCHORS_PER_PC,
@@ -59,6 +59,30 @@ def test_recorded_profile_persists_raw_ratings_and_survives_json_reload() -> Non
     # Saved source references take precedence over a later catalog's references.
     other = {n: {'random': 1000, 'heuristic': value} for n, value in D.CAMPAIGN_HEURISTIC.items()}
     assert public_profile(user, other) == profile
+
+
+def test_finishing_one_format_reuses_unchanged_legacy_rating(monkeypatch: pytest.MonkeyPatch) -> None:
+    references = R.DEFAULT_REFERENCE_ANCHORS_PER_PC
+    previous = fresh_user('test')
+    previous.update(games=1, wins=1, games_4p=1, wins_4p=1,
+                    rating_4p=R.calibrate_rating(6000, 4, R.calibration_scales_for(references)))
+    calls: list[int] = []
+    fit = R.fit_ratings_for_pc
+
+    def counted_fit(results: list[dict], pc: int, **kwargs: object) -> dict[str, float]:
+        calls.append(pc)
+        return fit(results, pc, **kwargs)
+
+    monkeypatch.setattr(R, 'fit_ratings_for_pc', counted_fit)
+    game = {'user_sub': 'test', 'num_players': 2, 'human_seat': 0,
+            'winner_seats': [0],
+            'opponent_info': [{'id': 'heuristic', 'raw_ratings': {'2': references[2]['heuristic']}}]}
+    updated = record_result(previous, game, references)
+
+    assert 4 not in calls
+    assert updated['raw_rating_4p'] == pytest.approx(6000)
+    assert updated['rating_4p'] == pytest.approx(D.to_display(6000, 4, D.scales_for(references)))
+    assert 'raw_rating_4p' not in previous
 
 
 def test_profile_combines_converted_values_by_games_and_hides_unplaced_ratings() -> None:

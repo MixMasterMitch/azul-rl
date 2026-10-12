@@ -1,4 +1,4 @@
-import { COLOR_NAMES } from '../types';
+import { COLOR_NAMES, TILE_SIZE } from '../types';
 import { Tile } from './Tile';
 
 interface Props {
@@ -12,8 +12,8 @@ interface Props {
   onColorClick?: (sourceIndex: number, color: number) => void;
 }
 
-const TILE = 22;
-const SLOT = 26;
+const TILE = TILE_SIZE;
+const GAP = 4;
 
 export function FactoryDisplay({
   tiles,
@@ -57,7 +57,7 @@ export function FactoryDisplay({
       style={{
         background: '#0f3460',
         borderRadius: '12px',
-        width: `${SLOT * 2 + 12}px`,
+        width: `${TILE * 2 + GAP + 16}px`,
         padding: '6px',
         border: '2px solid',
         borderColor: sourceSelected ? '#64b5f6' : 'transparent',
@@ -71,7 +71,7 @@ export function FactoryDisplay({
         style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gap: '4px',
+          gap: `${GAP}px`,
           justifyItems: 'center',
         }}
       >
@@ -81,8 +81,8 @@ export function FactoryDisplay({
               <div
                 key={i}
                 style={{
-                  width: `${SLOT}px`,
-                  height: `${SLOT}px`,
+                  width: `${TILE}px`,
+                  height: `${TILE}px`,
                   borderRadius: '4px',
                   border: '1px dashed #334466',
                   background: '#0a2540',

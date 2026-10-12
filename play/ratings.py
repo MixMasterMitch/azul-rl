@@ -2,11 +2,30 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Mapping
 from agent.train import ranking as R
 from agent.train import rating_display as D
 from .human_rating import _normalize_entity
+from . import fixed_ratings as F
 
 PLACEMENT_WINS = 5
+
+
+def _previous_raw_rating(user: dict, pc: int, references: Mapping[int, Mapping[str, float]]) -> float | None:
+    """Reuse an unchanged format's fit, including pre-display-version profiles."""
+    raw = user.get(f"raw_rating_{pc}p")
+    if raw is not None:
+        return float(raw)
+    displayed = user.get(f"rating_{pc}p")
+    if displayed is None:
+        return None
+    version = user.get("rating_display", {}).get("version")
+    if version == D.VERSION:
+        return D.from_display(float(displayed), pc, D.scales_for(references))
+    if version is not None:
+        raise ValueError("Unknown stored rating display version without raw ratings")
+    old_scale = R.calibration_scales_for(references)[pc]
+    return D.RANDOM + (float(displayed) - D.RANDOM) / old_scale
 
 
 def fresh_user(username: str) -> dict:
@@ -15,6 +34,8 @@ def fresh_user(username: str) -> dict:
 
 
 def record_result(previous: dict | None, game: dict, reference_anchors: dict[int, dict[str, float]]) -> dict:
+    if F.is_fixed(reference_anchors):
+        return F.record_result(previous, game)
     user = deepcopy(previous or fresh_user(game["user_sub"]))
     pc = game["num_players"]
     human = game["human_seat"]
@@ -41,12 +62,18 @@ def record_result(previous: dict | None, game: dict, reference_anchors: dict[int
     scales = D.scales_for(reference_anchors)
     user['rating_display'] = D.metadata(reference_anchors)
     user['rating_reference_anchors_per_pc'] = deepcopy(reference_anchors)
+    same_references = (not previous or not previous.get('rating_reference_anchors_per_pc') or
+                       R.reference_anchors_from_manifest({'reference_anchors_per_pc':
+                           previous['rating_reference_anchors_per_pc']}) == reference_anchors)
     total, weight = 0.0, 0
     for count in R.PLAYER_COUNTS:
-        fitted = R.fit_ratings_for_pc(user["results"], count,
-                                     anchors=user["anchors_per_pc"].get(str(count), {"random": 1000.0}),
-                                     reference_anchors_per_pc=reference_anchors)
-        raw = fitted.get("human")
+        raw = (None if count == pc or not same_references
+               else _previous_raw_rating(previous or {}, count, reference_anchors))
+        if raw is None:
+            fitted = R.fit_ratings_for_pc(user["results"], count,
+                                         anchors=user["anchors_per_pc"].get(str(count), {"random": 1000.0}),
+                                         reference_anchors_per_pc=reference_anchors)
+            raw = fitted.get("human")
         if raw is not None:
             user[f"raw_rating_{count}p"] = raw
             user[f"rating_{count}p"] = D.to_display(raw, count, scales)
@@ -58,6 +85,8 @@ def record_result(previous: dict | None, game: dict, reference_anchors: dict[int
 
 
 def public_profile(user: dict, reference_anchors: dict | None = None) -> dict:
+    if F.is_fixed(reference_anchors or user.get("rating_reference_anchors_per_pc")):
+        return F.public_profile(user)
     # Convert existing profiles on read, without rewriting game history or counts.
     references = R.reference_anchors_from_manifest({"reference_anchors_per_pc":
         user.get('rating_reference_anchors_per_pc') or reference_anchors})

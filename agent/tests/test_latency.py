@@ -7,15 +7,17 @@ from agent.train.checkpointing import save_checkpoint
 
 
 @pytest.mark.parametrize("completed", [None, 32, 64])
+@pytest.mark.parametrize("players", [2, 3, 4])
 def test_latency_requires_actual_native_completed_budget(
-    tmp_path, monkeypatch, completed: int | None
+    tmp_path, monkeypatch, completed: int | None, players: int
 ) -> None:
     path = tmp_path / "model.pt"
     save_checkpoint(
-        path, AzulNet(hidden=32, arch="source_attn"), config={"num_players": 2}
+        path, AzulNet(hidden=32, arch="source_attn"), config={"num_players": players}
     )
 
     def search(engine, model, *, search_config, perf):
+        assert engine.num_players == players
         assert search_config.move_deadline_s == 1.8
         if completed is not None:
             perf.add_count("native_tree_simulations_per_root", completed)
@@ -27,8 +29,10 @@ def test_latency_requires_actual_native_completed_budget(
         SearchConfig(backend="gumbel_tree", tree_core="rust"),
         games=1,
         deadline_s=1.8,
+        num_players=players,
     )
     assert result["qualified"] == (completed == 64)
+    assert result["num_players"] == players
     assert all(
         r["completed_simulations"] == (completed or 0) for r in result["records"]
     )

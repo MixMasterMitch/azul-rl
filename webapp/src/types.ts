@@ -14,6 +14,16 @@ export interface PlayerState {
   score: number;
 }
 
+export interface ScoreBreakdown {
+  placement: number;
+  floor: number;
+  rows: number;
+  columns: number;
+  colors: number;
+  earlier_rounds: number;
+  total: number;
+}
+
 export interface GameState {
   game_id: string;
   revision: number;
@@ -24,6 +34,7 @@ export interface GameState {
   updated_at: string;
   winner_seats: number[];
   opponent_names: string[];
+  score_breakdown?: ScoreBreakdown[];
   num_players: number;
   human_seat: number;
   opponents: string[];
@@ -107,6 +118,7 @@ export interface TileSelection {
   color: number;
 }
 
-export const CELL = 22;
+export const TILE_SIZE = 28;
+export const CELL = TILE_SIZE;
 export const CELL_GAP = 2;
 export const ROW_WIDTH = 5 * CELL + 4 * CELL_GAP;

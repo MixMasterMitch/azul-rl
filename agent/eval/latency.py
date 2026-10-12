@@ -29,6 +29,7 @@ def benchmark_latency(
     games: int = 3,
     deadline_s: float = 5.0,
     wall_budget_s: float | None = None,
+    num_players: int = 2,
 ) -> dict:
     """Qualify full budgets against a configurable per-move serving deadline.
 
@@ -41,16 +42,17 @@ def benchmark_latency(
         and math.isfinite(wall_budget_s)
         and 0 < deadline_s <= wall_budget_s
         and games >= 1
+        and num_players in (2, 3, 4)
     ):
         raise ValueError("Invalid internal deadline or outer move budget")
     model, _ = load_net_from_checkpoint(checkpoint, "cpu")
     wrapped = InferenceModel(model, device)
     positions = []
     for game in range(games):
-        engine = BatchedEngine(1, 2, "cpu", seed=seed + game)
+        engine = BatchedEngine(1, num_players, "cpu", seed=seed + game)
         bot = HeuristicBot(seed=seed + game)
         trajectory = []
-        for _ in range(300):
+        for _ in range(max(300, num_players * 100)):
             if engine.ended[0]:
                 break
             trajectory.append(engine.clone())
@@ -65,7 +67,7 @@ def benchmark_latency(
             positions.append((game, phase, max(turn, 0), trajectory[max(turn, 0)]))
     # Warm the inference path so model construction is excluded from move time.
     g, s = encode_state(positions[0][3])
-    wrapped(g, s, positions[0][3].legal_action_mask(), 2)
+    wrapped(g, s, positions[0][3].legal_action_mask(), num_players)
     records = []
     for game, phase, turn, engine in positions:
         cfg = replace(
@@ -97,6 +99,7 @@ def benchmark_latency(
         )
     return {
         "checkpoint_sha256": checkpoint_hash(checkpoint),
+        "num_players": num_players,
         "search": asdict(search),
         "inference_device": device,
         "torch_threads": torch.get_num_threads(),

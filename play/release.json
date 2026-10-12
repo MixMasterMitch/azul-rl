@@ -1,18 +1,24 @@
 {
-  "default_model_id": "net:league:294",
-  "league": "agent/runs/league/league.json",
+  "default_model_id": "net:shared:338",
+  "rating_scheme": "fixed-opponents-v1",
+  "fixed_rating_points": {
+    "random": 1000,
+    "heuristic": 2000,
+    "opus": 2250,
+    "astra": 2500,
+    "agent": 3000
+  },
   "models": {
-    "net:league:294": {
-      "name": "RL Trained Bot",
-      "source": "agent/runs/league/ckpt_00294_i1350.pt",
-      "source_sha256": "2d8bc3284f5c943082d6be232f69b4cac4111e9e8ec02fbd6249e9c64c6ef862",
-      "league_index": 294,
-      "trained_player_counts": [
-        2
-      ],
+    "net:shared:338": {
+      "name": "Trained Azul AI",
+      "source": "agent/runs/shared_core_24h_20261008/milestones/online_338.pt",
+      "source_sha256": "8049d4b43d5e5f31ea9883cadc4526fb7b483195ea24007d34adfffa879a6862",
+      "trained_player_counts": [2, 3, 4],
+      "rating_entity": "top_model",
       "search": {
-        "backend": "one_ply",
-        "num_simulations": 64,
+        "backend": "gumbel_tree",
+        "tree_core": "rust",
+        "num_simulations": 1024,
         "temperature": 0.25,
         "q_scale": 28,
         "root_noise_scale": 1,
@@ -24,7 +30,11 @@
         "max_root_candidates": 16,
         "max_depth": 120,
         "leaf_batch_size": 256,
-        "chance_samples": 4
+        "chance_samples": 4,
+        "cpu_workers": 1,
+        "inference_batch_size": 2048,
+        "inference_wait_ms": 2,
+        "inference_cache_size": 0
       }
     }
   }

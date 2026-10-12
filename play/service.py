@@ -131,8 +131,7 @@ class PlayService:
             return None, "Action must be an integer from 0 to 299"
         if not bool(engine.legal_action_mask()[0, action]):
             return None, "Illegal action"
-        engine.step(torch.tensor([action], dtype=torch.long))
-        session.record_turn(session.human_seat)
+        session.step(action, session.human_seat)
         return self._commit(session), None
 
     def step_ai(self, game_id: str, *, username: str = "local",
@@ -150,8 +149,7 @@ class PlayService:
         action = self._get_ai_action(session.engine, info["id"], info=info, seed=seed)
         if not bool(session.engine.legal_action_mask()[0, action]):
             raise RuntimeError("Opponent returned an illegal action")
-        session.engine.step(torch.tensor([action], dtype=torch.long))
-        session.record_turn(seat)
+        session.step(action, seat)
         return self._commit(session)
 
     def abandon(self, game_id: str, *, username: str, expected_revision: int) -> dict:

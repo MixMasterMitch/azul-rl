@@ -44,7 +44,7 @@ def freeze_source(root: Path) -> tuple[str, Path]:
         stage.mkdir()
         ignored = shutil.ignore_patterns('runs', 'node_modules', 'target', '__pycache__', '*.pyc',
                                          '.pytest_cache', 'play_data', '*.so', 'cdk.out')
-        for name in ('agent', 'play', 'infra', 'native', 'webapp'):
+        for name in ('agent', 'play', 'infra', 'native', 'webapp', 'docs'):
             shutil.copytree(root / name, stage / name, ignore=ignored)
         for name in ('pyproject.toml', 'cdk.json', '.dockerignore', 'README.md', 'AGENTS.md'):
             shutil.copy2(root / name, stage / name)

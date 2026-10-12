@@ -39,7 +39,7 @@ def main() -> None:
                 expect(page.get_by_role('heading', name='Start a new game')).to_be_visible(timeout=30000)
                 page.get_by_label('Players', exact=True).select_option(str(pc))
                 for seat in range(2, pc + 1):
-                    page.get_by_label(f'Player {seat}', exact=True).select_option('heuristic')
+                    page.get_by_label(f'Position {seat}', exact=True).select_option('heuristic')
                 page.get_by_role('button', name='Start game', exact=True).click()
                 page.wait_for_url(re.compile(r'.*#game/.+'))
                 game_id = page.url.split('#game/')[-1]

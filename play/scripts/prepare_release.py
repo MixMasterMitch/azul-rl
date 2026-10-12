@@ -15,6 +15,7 @@ from agent.net.encoder import encode_state
 from agent.search.config import SearchConfig
 from agent.train.checkpointing import load_net_from_checkpoint
 from agent.train.ranking import reference_anchors_from_manifest
+from play import fixed_ratings as F
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -56,22 +57,54 @@ def prepare(config_path: Path, directory: Path) -> dict:
     directory.mkdir(parents=True, exist_ok=True)
     previous = directory / "registry.json"
     manifest = json.loads(previous.read_text()) if previous.exists() else {"schema_version": 1, "models": {}}
-    league = json.loads((ROOT / config["league"]).read_text())
-    refs = reference_anchors_from_manifest(league)
+    league = json.loads((ROOT / config["league"]).read_text()) if "league" in config else {"entries": []}
+    ratings = None
+    if config.get("rating_scheme") == F.VERSION:
+        refs = F.references()
+        manifest["rating_scheme"] = F.VERSION
+        manifest.pop("ratings_source_sha256", None)
+        if config.get("fixed_rating_points") != {"random": 1000, "heuristic": 2000,
+                                                 "opus": 2250, "astra": 2500, "agent": 3000}:
+            raise ValueError("Fixed rating points must match the play rating scheme")
+    elif "ratings" in config:
+        ratings_path = ROOT / config["ratings"]["source"]
+        if digest(ratings_path) != config["ratings"]["source_sha256"]:
+            raise ValueError("Rating evidence changed; review the release selection")
+        ratings = json.loads(ratings_path.read_text())
+        refs = {int(pc): {name: values["raw_ratings"][name]
+                          for name in ("random", "heuristic", "opus", "astra")}
+                for pc, values in ratings["evidence"].items()}
+        for values in refs.values():
+            values["heuristic_opus"] = values.pop("opus")
+    else:
+        refs = reference_anchors_from_manifest(league)
     manifest.update(default_model_id=config["default_model_id"], reference_anchors_per_pc=refs)
+    if ratings:
+        manifest["ratings_source_sha256"] = config["ratings"]["source_sha256"]
     manifest["builtin_ratings"] = {}
     # Reference anchors are raw per-PC values; floating_entities contains display
     # calibration and must not be calibrated a second time.
-    for bot, entity in (("random", "random"), ("heuristic", "heuristic"), ("opus", "heuristic_opus")):
+    for bot, entity in (("random", "random"), ("heuristic", "heuristic"), ("opus", "heuristic_opus"), ("astra", "astra")):
         manifest["builtin_ratings"][bot] = {str(pc): values[entity] for pc, values in refs.items() if entity in values}
     for model_id, spec in config["models"].items():
         source = ROOT / spec["source"]
         if digest(source) != spec["source_sha256"]:
             raise ValueError(f"Source checksum changed for {model_id}; explicitly update the release selection")
+        index = spec.get("league_index")
+        league_entry = next((e for e in league["entries"] if e["idx"] == index), {})
+        if config.get("rating_scheme") == F.VERSION and spec.get("rating_entity") == "top_model":
+            raw_ratings = {str(pc): F.POINTS[F.AGENT_ID] for pc in spec["trained_player_counts"]}
+        elif ratings and spec.get("rating_entity"):
+            raw_ratings = {str(pc): ratings["evidence"][str(pc)]["raw_ratings"][spec["rating_entity"]]
+                           for pc in spec["trained_player_counts"]}
+        else:
+            raw_ratings = {str(pc): league_entry[f"rating_{pc}p"] for pc in spec["trained_player_counts"]
+                           if f"rating_{pc}p" in league_entry}
         existing = manifest["models"].get(model_id)
         if existing:
             if existing["source_sha256"] != spec["source_sha256"] or existing["search"] != spec["search"]:
                 raise ValueError(f"Model IDs are immutable; assign a new ID for changes to {model_id}")
+            existing["raw_ratings"] = raw_ratings
             continue
         net, source_payload = load_net_from_checkpoint(source, "cpu")
         metadata = {"hidden": net.hidden, "arch": net.arch, "model_version": net.model_version,
@@ -83,13 +116,10 @@ def prepare(config_path: Path, directory: Path) -> dict:
             checksum = digest(path)
             filename = checksum + ".pt"
             os.replace(path, directory / filename)
-        index = spec.get("league_index")
-        league_entry = next((e for e in league["entries"] if e["idx"] == index), {})
         entry = {**metadata, "name": spec["name"], "checkpoint": filename, "sha256": checksum,
                  "source_sha256": spec["source_sha256"], "search": spec["search"], "status": "baseline",
                  "available_for_new_games": True,
-                 "raw_ratings": {str(pc): league_entry[f"rating_{pc}p"] for pc in spec["trained_player_counts"]
-                                 if f"rating_{pc}p" in league_entry}}
+                 "raw_ratings": raw_ratings}
         manifest["models"][model_id] = entry
     # All previously shipped IDs remain resumable. Only configured IDs are offered
     # for new games; their binaries are deliberately never pruned here.

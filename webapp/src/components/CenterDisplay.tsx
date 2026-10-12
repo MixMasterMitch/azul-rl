@@ -1,4 +1,5 @@
 import { Tile } from './Tile';
+import { TILE_SIZE } from '../types';
 
 interface Props {
   tiles: number[];
@@ -11,7 +12,7 @@ interface Props {
   onColorClick?: (sourceIndex: number, color: number) => void;
 }
 
-const TILE = 22;
+const TILE = TILE_SIZE;
 const GAP = 4;
 const COLS = 4;
 

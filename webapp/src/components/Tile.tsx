@@ -1,4 +1,4 @@
-import { COLOR_HEX, COLOR_NAMES, COLOR_SYMBOLS } from '../types';
+import { COLOR_HEX, COLOR_NAMES, COLOR_SYMBOLS, TILE_SIZE } from '../types';
 
 interface Props {
   color: number;
@@ -22,7 +22,7 @@ const SYMBOL_COLOR: Record<number, string> = {
 
 export function Tile({
   color,
-  size = 22,
+  size = TILE_SIZE,
   selected = false,
   highlighted = false,
   highlightColor = '#81c784',

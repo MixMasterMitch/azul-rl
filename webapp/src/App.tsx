@@ -3,6 +3,7 @@ import { GameState, GameSummary, Opponent, Profile, LeaderboardEntry } from './t
 import { GameSetup } from './components/GameSetup';
 import { GameBoard } from './components/GameBoard';
 import { api, ApiError } from './api';
+import { opponentName } from './opponentLabels';
 import './app.css';
 
 type Section = 'play' | 'history' | 'leaderboard';
@@ -100,11 +101,11 @@ export default function App() {
     else window.location.hash = `game/${id}`;
   };
 
-  const createGame = async (numPlayers: number, opponents: string[]) => {
+  const createGame = async (numPlayers: number, humanSeat: number, opponents: string[]) => {
     setBusy(true); setError(null);
     const owner = username;
     try {
-      const state = await api<GameState>('/game', owner, { method: 'POST', body: JSON.stringify({ num_players: numPlayers, human_seat: 0, opponents }) });
+      const state = await api<GameState>('/game', owner, { method: 'POST', body: JSON.stringify({ num_players: numPlayers, human_seat: humanSeat, opponents }) });
       if (identityRef.current === owner) { setGame(state); openGame(state.game_id); }
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
@@ -144,7 +145,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <a href="#" className="brand" onClick={newGame}><span className="brand-tiles"><i /><i /><i /><i /></span>Azul<span className="brand-caption">Play & learn</span></a>
+        <a href="#" className="brand" onClick={newGame}><span className="brand-tiles"><i /><i /><i /><i /></span>Azul</a>
         {username && <div className="identity"><strong>{username}</strong><button className="quiet" onClick={() => {
           localStorage.removeItem('azul.username'); setUsername(''); setProfile(null); setGame(null); window.location.hash = ''; setError(null);
         }}>Switch name</button></div>}
@@ -153,7 +154,7 @@ export default function App() {
       {!username ? (
         <main className="welcome">
           <p className="eyebrow">One tile at a time</p><h1>A beautiful game.<br />A worthy opponent.</h1>
-          <p className="intro">Play Azul against trained AI and handcrafted bots. Your games and progress stay with your screen name.</p>
+          <p className="intro">Choose a 2-, 3-, or 4-player table, pick your opponents, and track your progress.</p>
           <form className="panel name-form" onSubmit={e => {
             e.preventDefault(); const name = nameInput.trim();
             if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) { setError('Use 1–32 letters, numbers, underscores, or hyphens.'); return; }
@@ -178,7 +179,7 @@ export default function App() {
         </div>
         <main>
           {section === 'play' && (game ? <>
-            <div className="game-toolbar"><div><p className="eyebrow">{game.num_players}-player table</p><h2>{game.opponent_names.join(' · ')}</h2></div>
+            <div className="game-toolbar"><div><p className="eyebrow">{game.num_players}-player table</p><h2>{game.opponent_names.map((name, i) => opponentName(game.opponents[i], name)).join(' · ')}</h2></div>
               <div className="button-row"><button onClick={newGame}>New game</button>{game.can_abandon && <button className="quiet" disabled={busy || aiThinking} onClick={() => mutate('abandon')}>Abandon game</button>}</div>
             </div>
             <GameBoard state={game} onAction={action => void mutate(action)} loading={busy || aiThinking} />
@@ -189,22 +190,21 @@ export default function App() {
               <select aria-label="Filter games" value={filter} onChange={e => setFilter(e.target.value)}><option value="">All games</option><option value="active">Active</option><option value="completed">Completed</option><option value="abandoned">Abandoned</option></select></div>
             {!history.length && <p className="empty">{busy ? 'Loading games…' : 'No games here yet. Start a new table to begin.'}</p>}
             <div className="game-list">{history.map(row => <article key={row.game_id} className="history-row">
-              <div><span className={`status ${row.status}`}>{row.status}</span><h3>{row.num_players} players · {row.opponent_names.join(', ')}</h3>
+              <div><span className={`status ${row.status}`}>{row.status}</span><h3>{row.num_players} players · {row.opponent_names.map(name => opponentName('', name)).join(', ')}</h3>
                 <p className="muted">{new Date(row.updated_at).toLocaleString()}{row.status === 'completed' && ` · Scores: ${row.scores.join(' / ')}`}</p></div>
               <button onClick={() => openGame(row.game_id)}>{row.status === 'active' ? 'Resume' : 'View result'}</button>
             </article>)}</div>
             {cursor && <button disabled={busy} onClick={loadMore}>{busy ? 'Loading…' : 'Load more'}</button>}
           </section>}
           {section === 'leaderboard' && <section className="panel">
-            <p className="eyebrow">Humans & bots</p><h2>Leaderboard</h2><p className="muted">Finish first five times to place. Ratings are shown separately for each table size.</p>
+            <p className="eyebrow">Humans & bots</p><h2>Leaderboard</h2><p className="muted">Finish first five times to place. Bot ratings are fixed comparison points; human ratings reflect results against them, from 1000 to 3500. Each table size is rated separately.</p>
             <div className="table-scroll"><table><thead><tr><th>Player</th><th>Rating</th><th>2 players</th><th>3 players</th><th>4 players</th></tr></thead>
-              <tbody>{leaders.map(row => <tr key={row.entity_id}><td><strong>{row.label}</strong><span className="table-kind">{row.kind === 'human' ? 'Human' : 'Bot'}</span></td>
+              <tbody>{leaders.map(row => <tr key={row.entity_id}><td><strong>{row.kind === 'agent' ? opponentName(row.entity_id, row.label) : row.label}</strong><span className="table-kind">{row.kind === 'human' ? 'Human' : 'Bot'}</span></td>
                 <td>{row.rating ?? '—'}</td><td>{row.rating_2p ?? '—'}</td><td>{row.rating_3p ?? '—'}</td><td>{row.rating_4p ?? '—'}</td></tr>)}</tbody></table></div>
             {!leaders.length && <p className="empty">{busy ? 'Loading leaderboard…' : 'No ratings available yet.'}</p>}
           </section>}
         </main>
       </>}
-      <footer>Azul · 2–4 players · Trained AI for two-player tables</footer>
     </div>
   );
 }

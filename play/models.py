@@ -10,6 +10,7 @@ from pathlib import Path
 from agent.train.model_registry import ModelRegistry
 from agent.train import ranking as R
 from agent.train import rating_display as D
+from . import fixed_ratings as F
 
 BUILTINS = {"random": "Random Bot", "heuristic": "Heuristic Bot", "opus": "Opus Bot", "astra": "Astra Heuristic"}
 
@@ -29,6 +30,7 @@ class ModelCatalog:
         self.default_model_id = manifest.get("default_model_id")
         self.release_id = manifest.get("release_id", "development")
         self.builtin_ratings = manifest.get("builtin_ratings", {})
+        self.fixed_ratings = manifest.get("rating_scheme") == F.VERSION
         self.builtins = dict(BUILTINS)
         if importlib.util.find_spec("azul_astra") is None:
             self.builtins.pop("astra")
@@ -68,7 +70,7 @@ class ModelCatalog:
                       "default": model_id == self.default_model_id}
             rated = []
             for pc, raw in info.get("raw_ratings", {}).items():
-                value = D.to_display(float(raw), int(pc), self.scales)
+                value = F.clamp(float(raw)) if self.fixed_ratings else D.to_display(float(raw), int(pc), self.scales)
                 public[f"rating_{pc}p"] = round(value)
                 rated.append(value)
             if rated:

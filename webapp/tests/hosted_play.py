@@ -44,13 +44,13 @@ def main() -> None:
             page.get_by_label('Players', exact=True).select_option(str(pc))
             if args.opponent:
                 for seat in range(2, pc + 1):
-                    page.get_by_label(f'Player {seat}', exact=True).select_option(args.opponent)
+                    page.get_by_label(f'Position {seat}', exact=True).select_option(args.opponent)
             elif pc == 2:
-                page.get_by_label('Player 2', exact=True).select_option(label='RL Trained Bot')
+                page.get_by_label('Position 2', exact=True).select_option(label='RL Bot (expert)')
             else:
                 for seat in range(2, pc + 1):
-                    select = page.get_by_label(f'Player {seat}', exact=True)
-                    assert 'RL Trained Bot' not in select.inner_text()
+                    select = page.get_by_label(f'Position {seat}', exact=True)
+                    assert 'RL Bot (expert)' in select.inner_text()
                     select.select_option('heuristic')
             page.get_by_role('button', name='Start game', exact=True).click()
             page.wait_for_url(re.compile(r'.*#game/.+'))
@@ -82,7 +82,7 @@ def main() -> None:
         page.get_by_role('button', name='View result').first.click()
         expect(page.locator('[data-game-status="completed"]')).to_be_visible()
         page.get_by_role('button', name='Leaderboard', exact=True).click()
-        expect(page.get_by_role('cell', name='RL Trained Bot', exact=False)).to_be_visible()
+        expect(page.get_by_role('cell', name='RL Bot', exact=False)).to_be_visible()
         page.screenshot(path=str(args.screenshots / 'leaderboard.png'), full_page=True)
         page.set_viewport_size({'width':390,'height':844})
         page.get_by_role('button', name='Play', exact=True).click()

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { GameState, COLOR_NAMES, COLOR_SYMBOLS, TileSelection } from '../types';
+import { opponentName } from '../opponentLabels';
 import { getValidTargets, findAction, getAvailableColorsAtSource } from '../actionUtils';
 import { getPickCount } from '../gameUtils';
 import { PlayerBoard } from './PlayerBoard';
@@ -137,6 +138,12 @@ export function GameBoard({ state, onAction, loading }: Props) {
             player={player}
             playerIndex={i}
             isHuman={i === state.human_seat}
+            opponentLabel={i === state.human_seat ? undefined : opponentName(
+              state.opponents[i < state.human_seat ? i : i - 1],
+              state.opponent_names[i < state.human_seat ? i : i - 1],
+            )}
+            breakdown={state.score_breakdown?.[i]}
+            ended={state.ended}
             isCurrent={i === state.current_player}
             interactive={isMyTurn && !loading && i === state.human_seat}
             selection={selection}
@@ -149,7 +156,7 @@ export function GameBoard({ state, onAction, loading }: Props) {
 
       {loading && (
         <div style={{ textAlign: 'center', padding: '1rem', color: '#aaa' }}>
-          Thinking...
+          {isMyTurn ? 'Applying your move and updating scores…' : 'Thinking…'}
         </div>
       )}
     </div>

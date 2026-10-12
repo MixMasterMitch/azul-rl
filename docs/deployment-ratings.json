@@ -1,0 +1,174 @@
+{
+  "evidence": {
+    "2": {
+      "checkpoint_sha256": "8049d4b43d5e5f31ea9883cadc4526fb7b483195ea24007d34adfffa879a6862",
+      "files": [
+        {
+          "path": "agent/runs/shared_core_24h_20261008/evaluations/confirmation_selected_2p_astra.json",
+          "sha256": "1cc22fcb447392bccb7f5813c12d679021b5bdd1b41d1c8bbd5555d6c7437c63"
+        },
+        {
+          "path": "agent/runs/shared_core_24h_20261008/evaluations/confirmation_selected_2p_opus.json",
+          "sha256": "998d2c560ce0db2d46ea87019279d9e78178d25609b9702c7940c233944bd98f"
+        },
+        {
+          "path": "agent/runs/shared_core_24h_20261008/evaluations/confirmation_selected_2p_specialist.json",
+          "sha256": "ff978b1fba54677cc300d649472635d72a93f56ce9b8a3ded81d4f56180ee384"
+        }
+      ],
+      "games": 768,
+      "pairwise_records": [
+        {
+          "a": "astra",
+          "b": "top_model",
+          "ties_2p": 2,
+          "wins_a_2p": 34,
+          "wins_b_2p": 220
+        },
+        {
+          "a": "opus",
+          "b": "top_model",
+          "wins_a_2p": 1,
+          "wins_b_2p": 255
+        }
+      ],
+      "rated_games": 512,
+      "raw_ratings": {
+        "astra": 6662.039514930438,
+        "heuristic": 5010.883038316622,
+        "opus": 5221.56289657827,
+        "random": 1000.0,
+        "top_model": 7468.735119616952
+      }
+    },
+    "3": {
+      "checkpoint_sha256": "8049d4b43d5e5f31ea9883cadc4526fb7b483195ea24007d34adfffa879a6862",
+      "files": [
+        {
+          "path": "agent/runs/shared_core_24h_20261008/evaluations/confirmation_selected_3p_astra_opus.json",
+          "sha256": "50807921f34597a9c59c8d4eda6d49072e5849ca89970fce28956fe666ca6359"
+        },
+        {
+          "path": "agent/runs/shared_core_24h_20261008/evaluations/confirmation_selected_3p_astra_specialist.json",
+          "sha256": "df964342a293a42aa03a77b4c99f707539e218d5ad1779deace365ac12e443c6"
+        },
+        {
+          "path": "agent/runs/shared_core_24h_20261008/evaluations/confirmation_selected_3p_double_astra.json",
+          "sha256": "f6fa76eb493d76a5a83d553114b1692fbe50364fa77c82358e520e3cce1928ab"
+        },
+        {
+          "path": "agent/runs/shared_core_24h_20261008/evaluations/confirmation_selected_3p_specialist_opus.json",
+          "sha256": "c7989cc31aa6f668a690b2ff36f85320a7bb2c92c86bc8ad043389c3e1f9ff2b"
+        }
+      ],
+      "games": 1344,
+      "pairwise_records": [
+        {
+          "a": "astra",
+          "b": "top_model",
+          "ties_3p": 20,
+          "wins_a_3p": 238,
+          "wins_b_3p": 894
+        },
+        {
+          "a": "opus",
+          "b": "top_model",
+          "ties_3p": 14,
+          "wins_a_3p": 121,
+          "wins_b_3p": 633
+        }
+      ],
+      "rated_games": 1344,
+      "raw_ratings": {
+        "astra": 6271.868481115748,
+        "heuristic": 5828.340748748028,
+        "opus": 5978.074913857236,
+        "random": 1000.0,
+        "top_model": 6782.213178973351
+      }
+    },
+    "4": {
+      "checkpoint_sha256": "8049d4b43d5e5f31ea9883cadc4526fb7b483195ea24007d34adfffa879a6862",
+      "files": [
+        {
+          "path": "agent/runs/shared_core_24h_20261008/evaluations/confirmation_selected_4p_astra_double_opus.json",
+          "sha256": "50658ad7439bda2f42b8a062e2945e1418386ae9c35fbd59f58bd423c403260d"
+        },
+        {
+          "path": "agent/runs/shared_core_24h_20261008/evaluations/confirmation_selected_4p_astra_opus_specialist.json",
+          "sha256": "e12181feb8ef0c5d886107bdd1ac7b8118c345d4fcc27d026459ba6f8b50fe6b"
+        },
+        {
+          "path": "agent/runs/shared_core_24h_20261008/evaluations/confirmation_selected_4p_double_astra_specialist.json",
+          "sha256": "e983708baec7fc1006b1c67810a06385ef2a42a65502a69dcfd0b221bf334d8d"
+        },
+        {
+          "path": "agent/runs/shared_core_24h_20261008/evaluations/confirmation_selected_4p_double_specialist_astra.json",
+          "sha256": "ae1b1e5e05268d3a258f2641efd3665c6177ef37ce0f71d53c7da1adb66cefc3"
+        }
+      ],
+      "games": 3840,
+      "pairwise_records": [
+        {
+          "a": "astra",
+          "b": "top_model",
+          "ties_4p": 101,
+          "wins_a_4p": 1595,
+          "wins_b_4p": 2912
+        },
+        {
+          "a": "opus",
+          "b": "top_model",
+          "ties_4p": 58,
+          "wins_a_4p": 784,
+          "wins_b_4p": 2230
+        }
+      ],
+      "rated_games": 3840,
+      "raw_ratings": {
+        "astra": 6441.708461819621,
+        "heuristic": 6085.0830749683855,
+        "opus": 6174.266335109624,
+        "random": 1000.0,
+        "top_model": 6669.228895660684
+      }
+    }
+  },
+  "limitations": "Cross-campaign diagnostic: shared-model games use different draws and table mixes from the reference round robin. Multiplayer pairwise outcomes are correlated. The broad 2p retention panel did not clear its prespecified gate. Values are comparative estimates, not confidence-bounded strength claims.",
+  "method": "Bradley-Terry pairwise final score comparisons with official winner tiebreaks, random=1000, scale=1000; frozen reference opponents anchored; top model fitted from held-out 1024-simulation shared-model panels; display maps heuristic to 2500 per count",
+  "rating_display": "heuristic-2500-v1",
+  "ratings": {
+    "astra": {
+      "2": 3118,
+      "3": 2638,
+      "4": 2605
+    },
+    "heuristic": {
+      "2": 2500,
+      "3": 2500,
+      "4": 2500
+    },
+    "opus": {
+      "2": 2579,
+      "3": 2547,
+      "4": 2526
+    },
+    "random": {
+      "2": 1000,
+      "3": 1000,
+      "4": 1000
+    },
+    "top_model": {
+      "2": 3419,
+      "3": 2796,
+      "4": 2672
+    }
+  },
+  "reference": {
+    "games": 19456,
+    "manifest_sha256": "fd5b0b3b85a85b85c286da979c610a98b829297f48b3af1ac0bc2adff7b7b1b9",
+    "path": "agent/runs/astra-ranking/full/report.json",
+    "sha256": "4b80ae057e151a9cdc0489bd6f9ff0fb472eb3b959c86e1706266e4f998ec47e"
+  },
+  "schema_version": 1
+}

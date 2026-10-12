@@ -1,6 +1,6 @@
 # Training journal
 
-Last reviewed: **October 1, 2026**. Training is **stopped at the user's request**.
+Last reviewed: **2026-10-10**. Shared-core confirmation is complete, including the 4p mixed-table panel and separate 2p direct match. Decision: **specialists retained; shared model remains experimental**. The evaluation service has finished.
 
 This is the durable record of the RL training experiments recoverable from this
 workspace: six May–June tuning studies, the v3/v4 runs, and the September–October
@@ -8,9 +8,10 @@ campaigns. It records unsuccessful and interrupted attempts as well as improveme
 Dates in campaign names identify their run directories; a run can finish on a later
 day. Explicit clock times below use America/Los_Angeles.
 
-The objective is the strongest two-player agent within approximately **two seconds
-per turn**. Training speed matters as an experiment cost, not as the final objective.
-Three- and four-player neural training remain future work. Astra's separate search
+The objective is maximum playing strength within approximately **two seconds
+per turn**. From October 8, this includes 3p/4p training while preserving
+2p playing strength; the user permits changes to 2p behavior. Training speed matters as an experiment cost, not as the final
+objective. Astra's separate search
 and heuristic experiments are recorded in the [Astra journal](astra/REVISIONS.md),
 [ablations](astra/ABLATIONS.md), and [results](astra/RESULTS.md).
 
@@ -52,7 +53,7 @@ descended from capacity study `control_60m`. Its recorded archive identities are
   SHA-256 `ee6a6134170ac5fffd14eb8987556a76955387016e2661cd6370ff57fcac664a`.
 - [Matching league](../agent/runs/competitive_distillation_resume_12h_20260928/initializers/small/league/league.json).
 
-**Archive availability at this review:** those two original checkpoint files and
+**Archive availability at the October 1 review:** those two original checkpoint files and
 their baseline/resume copies in the surprise initializers are no longer present.
 Their identities remain in the [verified preparation manifest](../agent/runs/competitive_surprise_20h_20261001/prepared.json).
 The [surviving smoke initializer](../agent/runs/competitive_surprise_20h_20261001/smoke_fixed/checkpoints/latest_resume.pt)
@@ -73,11 +74,12 @@ iterations, fast-target policy weight 0.25, and 256 reanalysed positions every f
 iterations. Bot games mix 50% Astra, 25% Opus, and 25% heuristic. League opponents
 use 64-simulation trees. Native inference caching is disabled after memory faults.
 
-The most useful unresolved comparisons are the saved width-512 `continuation_180m`
-candidate at 384 simulations versus the baseline at 1,024; a fresh confirmation
-of the early auxiliary-score candidate; and the unrun matched policy-surprise
-experiment. The initial heap-corruption cause remains unproven. None of these
-pending questions authorizes restarting the stopped run.
+Unresolved comparisons include the saved width-512 `continuation_180m` candidate
+at 384 simulations versus the baseline at 1,024, and a fresh confirmation of the
+early auxiliary-score candidate. The matched policy-surprise experiment has now
+completed two training seeds without establishing a benefit over uniform replay;
+the retained method and model are unchanged. The initial heap-corruption cause
+remains unproven. None of these pending questions authorizes another training run.
 
 ## Experiment index
 
@@ -104,6 +106,10 @@ pending questions authorizes restarting the stopped run.
 | September 28, auxiliary score 16h | Add final score-margin supervision | Early candidate promising but unconfirmed; native abort before final tests |
 | September 29, surprise 20h | Reliability mitigation, then biased replay study | Main campaign never launched; diagnostics only |
 | October 1, surprise restart 20h | Validate revised Rust binary, then run study | User stopped during smoke training; no campaign comparisons |
+| October 1 and 6, surprise pilots 8h / resumed 6h | Uniform versus policy-surprise replay | Direct surprise score 51.32% [48.29, 54.35]; inconclusive, no promotion |
+| October 7, surprise replication 9h cap | Repeat matched comparison with a fresh training seed | Direct surprise score 47.27% [44.19, 50.24]; two-seed average 49.29%, no demonstrated benefit |
+| October 8, multiplayer foundation 12h cap | Transfer 2p knowledge into independent 3p/4p specialists | Completed in 8.06h; held-out Astra win shares 59.90% (3p) / 37.50% (4p); 2p unchanged, CPU timing passed |
+| October 8–10, shared core / completed confirmation | Consolidate specialists and train one shared core on mixed tables | Weighted gains: 3p +4.09pp [+0.39, +7.60], 4p +3.05pp [+1.04, +5.04]; direct 2p 52.15% [50.02, 54.30]; broader 2p panel unresolved, automatic promotion gate unmet |
 
 ## May–June: tuning and initial neural training
 
@@ -506,6 +512,191 @@ Evidence: [run plan](../agent/runs/competitive_surprise_20h_20261001/RUN.md),
 [smoke events](../agent/runs/competitive_surprise_20h_20261001/smoke_fixed/events.log),
 [stop record](../agent/runs/competitive_surprise_20h_20261001/stop_request.json).
 
+### Matched policy-surprise pilots — October 1 and 6, completed
+
+The October 1 eight-hour study used the revised native binary and a fresh five-iteration
+smoke check, then forked the same surviving iteration-54 full state (optimizer and
+replay included) into two width-256 arms with seed 20261002. Both used the same
+new pinned-baseline league, search budgets, learner settings, and 120 cumulative
+training minutes. The sole controlled change was full-policy replay sampling:
+uniform control (fraction 0) versus policy-surprise fraction 0.5, requiring at
+least 256 search simulations and capping the sample weight at 4. Both recorded
+surprise metadata. The historical league checkpoint files were missing, so the
+new league is a documented departure from that earlier campaign. The recovered
+frozen baseline reproduces the fork's model tensors but is not the lost original
+full-state archive.
+
+The user force-stopped the first service after the control arm reached iteration
+156; its 256-game screen was interrupted halfway. On October 6, the user
+explicitly authorized resuming. The unchanged code and native binary, checkpoint
+hash, idle GPU, and disk floor were verified. A new six-hour deadline (21:22:54
+UTC) with a systemd runtime cap resumed the evaluation, then trained the surprise
+arm without repeating completed control training. Both arms completed 102
+iterations from the fork, 7,344 successful learner updates, zero skipped updates,
+and iteration-156 weight snapshots. The control and surprise 120-minute training
+wall times were 7,210 and 7,296 seconds respectively.
+
+Development screens used paired seats/draws, 1,024 simulations per model,
+128 games at 30 minutes and 256 games at 120 minutes. Against the frozen
+baseline, control scored 43.75% then 52.54% [46.88, 58.20]; surprise scored
+50.00% then **57.23% [51.95, 62.70]**. The paired 120-minute surprise-minus-control
+difference through that common opponent was +4.69pp [−2.93, +12.50]. Against
+Astra at 120 minutes, control scored 79.10% and surprise 81.45%; surprise's
+paired change versus the frozen baseline's 84.77% was −3.32pp [−9.38, +2.54].
+No predeclared early-stop gate fired.
+
+A separate 1,024-game, paired-seat/draw direct match on fresh confirmation seeds
+put surprise against control at the same 1,024-simulation search budget:
+**51.32% [48.29, 54.35]**, with no unfinished games. The result does not
+establish policy-surprise superiority over uniform replay. It is one training
+seed per arm; the direct match did not include a new CPU serving-time audit.
+No checkpoint was promoted or deployed. All experiment services ended and GPU
+compute was released. The small frozen baseline remains the retained reference;
+next work should replicate the matched training comparison before selecting a
+new method, if further training is desired.
+
+Evidence: [frozen plan](../agent/runs/competitive_surprise_pilots_8h_20261001_r2/plan.json),
+[resume budget](../agent/runs/competitive_surprise_pilots_8h_20261001_r2/resume_budget_20261006.json),
+[development results](../agent/runs/competitive_surprise_pilots_8h_20261001_r2/result.json),
+[direct comparison](../agent/runs/competitive_surprise_pilots_8h_20261001_r2/direct_comparison_20261006.json).
+
+### Fresh-seed policy-surprise replication — October 7, completed
+
+The user authorized one more matched training pair after the first direct comparison
+remained unresolved. The replication uses fresh training seed **20261007** in
+[its run directory](../agent/runs/competitive_surprise_replication_seed20261007/),
+the same frozen iteration-54 full-state checkpoint, a new empty pinned-baseline
+league, and the same width-256 training settings as the prior pair. Both arms
+record surprise labels; uniform sampling (fraction 0) and policy-surprise
+sampling (fraction 0.5) are the only intended treatment difference. Each arm
+has 30- and 120-minute cumulative checkpoints and development screens; the
+30-minute screens are diagnostic so both arms can reach the requested matched
+two-hour budget unless a safety failure intervenes. Development screens use
+128/256 paired-seat/draw games against the frozen baseline and Astra, with
+1,024 simulations for learned models. A fresh-seed, direct 1,024-game paired
+comparison of the 120-minute arms is planned at 1,024 simulations each.
+
+The whole run was bounded to nine hours from launch, with a separate systemd
+runtime cap and a 6 GiB disk floor. It completed at **5:20 PM PDT October 7**, after
+**6h24m** including evaluations. Both arms reached iteration 156: 102 completed
+iterations, 7,344 successful learner updates, and zero skipped updates each.
+Control used 7,303 seconds of training and surprise 7,221 seconds. No native
+corruption was observed in this run. The service exited successfully and GPU
+compute was released. No continuation, deployment, or model promotion occurred.
+
+At 120 minutes, the 256-game development screens gave control **48.24%
+[41.80, 54.69]** against the frozen baseline and surprise **48.44% [42.77, 54.10]**.
+Their paired difference through the baseline was +0.20pp [−8.79, +9.38]. Against
+Astra, control scored **85.35%** and surprise **81.64%**, compared with the frozen
+baseline's **86.72%** on the same 256-game seed set. Neither arm demonstrated an
+improvement over the frozen baseline.
+
+The fresh-seed direct evaluation completed all **1,024 games** at 1,024 simulations
+per model. Surprise had 477 sole wins, 533 losses, and 14 shared victories:
+**47.27% match score [44.19, 50.24]**. The point estimate favors uniform replay,
+but the interval includes 50%, so this does not establish that surprise is worse.
+Together with the first pair's 51.32%, the two-seed average is **49.29%**. The
+pooled game-level interval is [47.17, 51.39], descriptive only: it ignores variation
+between training seeds and must not be treated as a robust multi-seed interval.
+The initial positive point estimate did not replicate; these experiments provide
+no demonstrated strength benefit from the tested policy-surprise configuration.
+
+The retained reference remains the frozen small baseline. There was no separate
+model-promotion confirmation or new CPU serving-time audit. The control and
+surprise checkpoint SHA-256 values are respectively
+`11cd47e294c180b9d6c534fe06edb96fa189e2e6c9ac7ca1fc4852f79811d187` and
+`cebc8963c81bc9538f4a121d514e1e68c6b4a4565ca190376fecac2391d6082b`.
+
+Evidence: [frozen plan](../agent/runs/competitive_surprise_replication_seed20261007/plan.json),
+[completed result](../agent/runs/competitive_surprise_replication_seed20261007/result.json),
+[control screens](../agent/runs/competitive_surprise_replication_seed20261007/control_screens.json),
+[surprise screens](../agent/runs/competitive_surprise_replication_seed20261007/surprise_screens.json),
+[direct match](../agent/runs/competitive_surprise_replication_seed20261007/evaluations/surprise_120m_vs_control_120m_direct_f24034ebf9f9.json),
+[completion record](../agent/runs/competitive_surprise_replication_seed20261007/replication_status.json).
+
+## October 8: multiplayer foundation — completed
+
+The user requested starting three- and four-player training without regressing
+two-player performance. The initial window used the stated twelve-hour default
+after no duration answer arrived: **7:39 AM–7:39 PM PDT October 8**, covering validation,
+smoke runs, training, and evaluation after preparation. The shared network backbone
+would allow 3p/4p updates to change 2p outputs, so this experiment trains independent
+specialists and routes 2p to a separate frozen checkpoint. Neither the current
+play-server selection nor its 2p search settings are changed.
+
+The source is the recovered frozen small baseline
+`agent/runs/competitive_wide_eval_20261001/baseline_recovered.pt`, SHA-256
+`897f8c4bdabb644abcd38dd8cad8bec7595a70ea61cf8d35299056f505a9e981`.
+A byte-identical private copy is retained in the new campaign. The 3p/4p
+initializers copy its backbone, policy head, and embedding, then reset the
+multiplayer value readout to the symmetric binary-reward expectation. Optimizers,
+500,000-position replay buffers, and leagues are fresh and separate. These are
+weights-only transfers, not resumes of 2p optimizer or replay. Seeds are 20261011
+for 3p and 20261012 for 4p. Both use uniform replay, the established 64/256 search
+schedule, 72 learner steps, fast-policy weight 0.25, and regular reanalysis.
+
+After bounded four-iteration smoke checks for each player count, 60% of remaining
+wall time is allocated equally to training, with alternating 30-minute,
+120-minute, and final cumulative milestones. Development uses full seat rotations
+against heuristic, Opus, and Astra at 256 simulations (96 games/opponent). One
+checkpoint per player count is selected on the development panel, then compared
+with its transferred initializer on held-out Opus/Astra seeds (384 games per
+model/opponent). Multiplayer **win share** divides credit among the actual tied
+winners; a third player's loss is not counted as a draw. This differs from the
+two-player match-score shorthand used in earlier entries.
+
+Final CPU audits cover 24 opening/middle/late positions per player count, with a
+two-second outer budget. Source/2p/native hashes, independent model routing,
+separate leagues, and a 6 GiB disk floor protect the retained reference and run
+integrity. No automatic restart or deployment is part of this campaign. Completion,
+failure, or stop will be appended to this journal by the runner.
+
+**Launch validation:** 587 repository tests passed. Actual baseline versus the
+frozen bundle route produced bitwise-identical policy/value outputs and
+64-simulation tree actions/policies on the checked 2p positions. Both CUDA smoke
+runs completed all four iterations (48 games and eight learner updates per player
+count), with no skipped updates. Their saved full states reloaded successfully
+with the correct player count, optimizer, replay, and RNG. The unchanged native
+binary is the one used by the completed surprise replication. These checks
+establish pipeline functionality and 2p identity, not multiplayer playing strength.
+
+At launch, the persistent service `azul-multiplayer-foundation-20261008.service` was active;
+all six initial development evaluations completed with no unfinished games, and
+the first full 3p training segment started at 7:48 AM PDT. Allocation is
+**214 cumulative training minutes per player count**, at 30/120/214-minute
+milestones. Its runtime cap allowed graceful shutdown five minutes before the
+7:39 PM deadline. The planned work finished normally at **3:42 PM**, after 8h04m;
+the unused evaluation reserve was not converted into additional training.
+
+The 3p arm finished 245 iterations / 17,640 learner updates / 62,720 games, and
+4p finished 186 iterations / 13,392 updates / 47,616 games. Neither had skipped
+updates or unfinished training games. The development panel selected **3p/120m,
+iteration 144**, and **4p/214m, iteration 186**. The later 3p model had a slightly
+higher Astra point score but a lower mean across the three development opponents;
+this selection does not establish a statistically resolved regression from more
+training. Held-out results are recorded in the closeout below.
+
+Both selected models completed all 256 search simulations on 24 CPU positions.
+The 3p p95/max turn times were 0.347/0.351 seconds; 4p was 0.341/0.341 seconds,
+within the two-second budget. This is a local timing sample, not a guarantee for
+every possible position. Source and frozen 2p hashes and bundle routing were
+verified unchanged again after completion. The experimental bundle contains all
+three routes; the play server remains unchanged.
+
+The selected 3p milestone contains weights, while its latest full resume is from
+iteration 245. Do not combine that later optimizer/replay with iteration-144
+weights and describe it as an exact resume.
+
+Evidence: [frozen plan](../agent/runs/multiplayer_foundation_12h_20261008/plan.json),
+[player-count bundle](../agent/runs/multiplayer_foundation_12h_20261008/bundle.json),
+[live status](../agent/runs/multiplayer_foundation_12h_20261008/status.json),
+[regression and 2p audit](../agent/runs/multiplayer_foundation_12h_20261008/validation.json),
+[smoke checkpoint audit](../agent/runs/multiplayer_foundation_12h_20261008/smoke_checkpoint_audit.json),
+[completed results](../agent/runs/multiplayer_foundation_12h_20261008/result.json),
+[3p CPU timing](../agent/runs/multiplayer_foundation_12h_20261008/latency_3p.json),
+[4p CPU timing](../agent/runs/multiplayer_foundation_12h_20261008/latency_4p.json),
+[protocol](multiplayer-training.md).
+
 ## What to carry into the next experiment
 
 | Finding | Evidence supports | Still unresolved |
@@ -521,8 +712,8 @@ Evidence: [run plan](../agent/runs/competitive_surprise_20h_20261001/RUN.md),
 | Width 512 | Resolved equal-tree64 head-to-head gain; promising later Astra result | Superiority over small1024 at a well-used two-second serving budget |
 | Teacher distillation | Tested 50% policy-only mixture regressed badly | Gentler mixtures, schedules, and better teacher/student target alignment |
 | Auxiliary score head | Early positive point estimate only | Independent matched confirmation |
-| Policy-surprise sampling | Implementation and bounded validation | All strength comparisons |
-| Rust memory reliability | Detection sites and a tested mitigation | Original corruption cause and sustained revised-binary training |
+| Policy-surprise sampling | Two matched training seeds average 49.29% in direct matches; no demonstrated advantage over uniform replay | Small effects remain uncertain; alternative sampling settings were not tested |
+| Rust memory reliability | Revised binary completed four 120-minute arms across two training seeds without observed corruption | Original corruption cause and longer-run reliability |
 
 ## Updating this journal
 
@@ -546,3 +737,232 @@ Keep the tuning export historical; append a clearly identified study export when
 new tuning occurs. Do not rewrite original run manifests or code hashes merely to
 make an old run accept newly committed code. A stop instruction remains in effect
 until the user authorizes further training.
+
+### Multiplayer campaign closeout — 2026-10-08T15:42:56-07:00
+
+Run `multiplayer_foundation_12h_20261008` **completed**. Elapsed 8.06h. Frozen 2p checkpoint and route verified unchanged; no deployment.
+
+- 3p: selected iteration 144; CPU latency qualified: True. Against opus: win share 89.45% versus initializer 4.69%; paired change +84.77pp [+81.12, +88.28] (384 games per model). Against astra: win share 59.90% versus initializer 6.77%; paired change +53.12pp [+47.53, +58.59] (384 games per model).
+- 4p: selected iteration 186; CPU latency qualified: True. Against opus: win share 74.35% versus initializer 1.17%; paired change +73.18pp [+69.27, +77.08] (384 games per model). Against astra: win share 37.50% versus initializer 3.65%; paired change +33.85pp [+28.91, +38.80] (384 games per model).
+
+Evidence: [run status](../agent/runs/multiplayer_foundation_12h_20261008/status.json), [frozen plan](../agent/runs/multiplayer_foundation_12h_20261008/plan.json).
+
+## October 8–9: shared-core consolidation and mixed tables — budget stopped; partial confirmation
+
+The user authorized the proposed 24-hour setup/training/evaluation window and
+explicitly requested mixed tables in training and evaluation, with weighted win
+rates. Two-player behavior may change provided playing strength is retained.
+The experiment uses a fully trainable width-256 shared backbone and three separate
+policy/value heads; the selected 2p/3p/4p foundation specialists remain immutable
+teachers and fallbacks. This is a new weights-only initialization with a fresh
+optimizer and explicitly donated observations, not an exact specialist resume.
+
+Run: `agent/runs/shared_core_24h_20261008`. The frozen budget starts during setup.
+Consolidation fits all three teachers' policies AND values with equal per-count
+loss weights. Online learning adds balanced self-play/mixed tables and 15% teacher
+anchors, separate 200k replay buffers, Rust 64/256 search, and regular reanalysis.
+Training ends six hours before the 24-hour deadline to reserve confirmation time.
+There is no automatic deployment or restart.
+
+Evaluation rotates all distinct candidate/opponent seat assignments. Fixed table
+weights emphasize combinations of Astra, Opus, and frozen neural specialists.
+A sole winner earns 1, actual shared winners split 1/k, and losers earn 0; these
+win shares are weighted by the declared table distribution separately for each
+player count. Intervals resample complete seed blocks jointly across tables;
+paired changes replace only the candidate seat. No adaptive weighting or averaging
+across player counts can hide a failed per-count retention gate.
+
+The initial CPU audit qualified all three specialists at 512 and 1,024 simulations
+on 24 positions each; 1,024-simulation p95 was 1.31–1.34 seconds. Main evaluation
+uses 1,024 simulations for every neural seat. Final shared-model CPU audits use
+48 fresh positions per count. These timing checks are not strength results.
+Development selection precedes fresh mixed-table confirmation and a separate
+2,048-game 2p direct match. A predeclared two-percentage-point noninferiority margin
+is an experimental retention criterion, not proof of identical strength; unresolved
+comparisons keep the specialist fallback. Final decisions require all three counts
+and the 2p direct test to pass, plus CPU qualification.
+
+Evidence: [protocol](shared-core-training.md),
+[budget](../agent/runs/shared_core_24h_20261008/budget.json),
+[plan](../agent/runs/shared_core_24h_20261008/plan.json),
+[status](../agent/runs/shared_core_24h_20261008/status.json).
+
+**Launch validation:** 594 full-suite tests passed in 155.53 seconds; all eight
+shared-core tests passed after the final bookkeeping/cache changes. The real CUDA
+smoke completed 72 finished games across 2p/3p/4p, four balanced online updates,
+reanalysis, and a compressed full-state restore. Functional checks do not establish
+playing strength. The native extension was unchanged.
+
+The persistent service `azul-shared-core-20261008.service` launched successfully
+and began corpus construction. The budget is **October 8, 10:01 PM PDT–October 9, 10:01 PM PDT**, including setup.
+Its automatic runtime cap leaves five minutes for graceful saving; no restart is
+configured. Input checkpoint, native binary, and executable source hashes are
+frozen. [Validation](../agent/runs/shared_core_24h_20261008/validation.json) and
+[launch details](../agent/runs/shared_core_24h_20261008/launch.json) are saved.
+
+**Initial live check:** corpus construction finished for all three player counts,
+and the production run completed its first 500 joint consolidation updates with
+finite losses and saved shared checkpoints. The service remains active. Early
+imitation-loss changes are diagnostics only; no strength result or promotion has
+been established.
+
+### Shared-core campaign closeout — 2026-10-09T21:59:06-07:00
+Run `shared_core_24h_20261008` **stopped** after 23.96h. No deployment.
+
+Failure/stop: `Graceful stop requested`. Last phase: evaluation.
+
+Evidence: [status](../agent/runs/shared_core_24h_20261008/status.json), [plan](../agent/runs/shared_core_24h_20261008/plan.json), [results](../agent/runs/shared_core_24h_20261008/result.json).
+
+### Shared-core review — October 10: training finished, confirmation incomplete
+
+The run completed **20,000 consolidation updates**, **408 online rounds / 29,376
+joint RL updates**, and **117,504 online games** (39,168 per player count). The
+all-count development rule selected `milestones/online_338.pt`, SHA-256
+`8049d4b43d5e5f31ea9883cadc4526fb7b483195ea24007d34adfffa879a6862`.
+The final full resume is iteration 408, with three populated 200k replay buffers,
+optimizer, and RNG state; it was loaded successfully at review. Teacher, native,
+and selected checkpoint hashes still match. No service or GPU training remains.
+
+Completed fresh-seed, 1,024-simulation confirmation panels, recomputed from the
+saved per-table reports:
+
+| Player count | Shared weighted win share | Specialist | Paired change, 95% CI | Games per model |
+|---|---:|---:|---:|---:|
+| 2p | 70.55% | 71.80% | −1.25pp [−5.69, +3.29] | 768 |
+| 3p mixed tables | 61.24% | 57.15% | +4.09pp [+0.39, +7.60] | 1,344 |
+
+The 3p interval supports an improvement on this fixed panel for one training seed.
+The 2p interval establishes neither a regression nor retention within the declared
+two-point tolerance. Its panel included a 256-game direct score of 50.78%
+[44.53, 57.23]; the separate 2,048-game direct test never started. All completed
+reported games finished normally. These weighted shares are not comparable to
+older homogeneous-opponent panels with different search budgets.
+
+The selected model's 4p **development-only** score was 41.49% versus 39.32%, a
++2.18pp change [−1.61, +5.94]. The first held-out 4p table was interrupted after
+864 of 1,536 games; its in-memory partial records were not saved as a table report.
+The full 4p confirmation and larger direct 2p test remain outstanding. The final
+`result.json` does not exist; the durable partial result is `confirmation_progress.json`.
+
+All three shared-model CPU audits qualified 1,024 simulations on 48 positions each:
+p95 1.335/1.336/1.337 seconds, sampled maxima below 1.366 seconds. This does not
+establish a worst-case bound for every position.
+
+The service reached the wall cap and saved gracefully at **9:59 PM PDT October 9**,
+after 23.96 hours. Its timeout/exit status reflects the cap rather than an observed
+numerical or native-engine failure. The evaluation allocation was insufficient:
+4p development panels took about 55 minutes per 720 games, and the final development
+screen used part of the six-hour reserve. At observed throughput, the complete
+remaining frozen 4p panel and 2p direct match require roughly twelve more evaluation
+hours. Future evaluation continuation should save complete seed blocks incrementally
+so an interrupted table does not lose work.
+
+**Decision:** specialists retained; no promotion, deployment, restart, or extra
+training. Finish the frozen selection's outstanding evaluations before another
+training study. Confirmation must not select an alternative checkpoint.
+
+Evidence: [review report](../agent/runs/shared_core_24h_20261008/REPORT.md),
+[structured review](../agent/runs/shared_core_24h_20261008/review_20261010.json),
+[completed held-out panels](../agent/runs/shared_core_24h_20261008/confirmation_progress.json),
+[selection](../agent/runs/shared_core_24h_20261008/selection.json),
+[stop record](../agent/runs/shared_core_24h_20261008/failure.json).
+
+### October 10: authorized evaluation-only completion — completed
+
+The user authorized finishing the outstanding evaluations. This continuation keeps
+the already-selected iteration-338 checkpoint, all specialists, 1,024-simulation
+search settings, table weights, confirmation seeds, and original retention criteria.
+It does not retrain, reselect, deploy, or rewrite the original campaign manifest.
+The original iteration-408 full training resume and completed 2p/3p results are
+hashed and preserved.
+
+The separate 2,048-game direct 2p test runs first. Then all four 4p table strata
+are completed for both the selected model and the frozen 4p specialist: 3,840 games
+per model, 7,680 4p games total. This is **9,728 new evaluation games**. The first
+attempt's in-memory 864 partial 4p games are unavailable and must be repeated.
+The 48-position CPU timing audits for each player count are reused with verified
+checkpoint, source, and native identities.
+
+Every finished 96-game batch (including complete seat blocks) is now atomically
+saved and fsynced before stop checks. Saved requests include all model/search/seed
+identities; resumes preserve the original batch offset and therefore search RNG
+seeds. The original and updated evaluator produced identical records in CPU
+2p/3p/4p checks, and a real selected-model 4p mixed Astra/Opus/neural CUDA test
+matched across an interruption and disk resume. Only an unsaved current batch
+needs repeating after a forced stop. These are functional checks, not strength
+results.
+
+Expected evaluation time is roughly twelve hours. A separate eighteen-hour runtime
+limit allows variability and reserves fifteen minutes for graceful shutdown. No
+automatic restart is configured. The completion runner will write final results,
+a readable report, and a journal closeout. Frozen historical manifests are not
+modified to accept the persistence change; a new manifest records its exact scope.
+
+Evidence: [completion manifest](../agent/runs/shared_core_24h_20261008/eval_completion_20261010/plan.json),
+[completion status](../agent/runs/shared_core_24h_20261008/eval_completion_20261010/status.json),
+[deterministic parity/CUDA resume smoke](../agent/runs/shared_core_24h_20261008/eval_completion_20261010/parity_smoke.json).
+
+**Launch verified:** `azul-shared-evaluation-20261010.service` is active and began
+the direct 2p confirmation on **October 10 at 10:15 AM PDT**. Its maximum wall window
+ends October 11 at 4:15 AM PDT; expected work is roughly twelve hours. All **41 targeted
+tests passed** (28.37 seconds), including end-to-end final-report creation, frozen
+artifact preservation, rejection of changed evaluation inputs, and exact record
+equality after disk resume. Existing completed 2p/3p panels were recomputed and
+matched their saved results after JSON normalization. The native binary and all
+inherited frozen inputs passed preflight. No new learner or training process was
+started.
+
+Evidence: [launch](../agent/runs/shared_core_24h_20261008/eval_completion_20261010/launch.json),
+[validation](../agent/runs/shared_core_24h_20261008/eval_completion_20261010/validation.json),
+[preflight](../agent/runs/shared_core_24h_20261008/eval_completion_20261010/preflight.json).
+
+### Shared-core evaluation completion — 2026-10-10T21:00:32-07:00
+
+Authorized evaluation-only continuation **completed**. No additional training or deployment.
+
+| Count | Shared weighted win share | Specialist | Paired change, 95% CI |
+|---|---:|---:|---:|
+| 2p | 70.55% | 71.80% | -1.25pp [-5.69, +3.29] |
+| 3p | 61.24% | 57.15% | +4.09pp [+0.39, +7.60] |
+| 4p | 41.75% | 38.70% | +3.05pp [+1.04, +5.04] |
+
+The separate 2,048-game 2p direct match scored **52.15%** [50.02%, 54.30%].
+
+Decision: **specialists retained; shared model remains experimental**. The original two-point tolerance and all-count gates were unchanged. These intervals reflect games on the fixed opponent panel for one training seed.
+
+The existing 48-position CPU audits for each count remain qualified at 1,024 simulations. All inherited checkpoint/native hashes and completed reports were verified. The selected checkpoint remains iteration 338; the final training resume remains iteration 408.
+
+Evidence: [completion status](../agent/runs/shared_core_24h_20261008/eval_completion_20261010/status.json), [completion manifest](../agent/runs/shared_core_24h_20261008/eval_completion_20261010/plan.json), [final results](../agent/runs/shared_core_24h_20261008/result.json).
+
+**Completion verified at the October 10 review:** all 9,728 continuation games
+are durably saved, the service exited successfully at 9:00 PM PDT after 10h45m,
+and GPU compute is released. The 4p weighted aggregate was independently
+recomputed from all eight completed table reports, with no unfinished games,
+and the selected model hash was rechecked. The narrower 2p direct interval
+favors the shared model, while the smaller weighted 2p panel still cannot rule
+out a loss beyond the predeclared two-point margin; this is uncertainty in that
+panel, not a demonstrated 2p regression. No acceptance criterion was changed
+after seeing confirmation results.
+
+### October 12: deployment rating preparation — no new training or matches
+
+For the requested human comparison table, the shared iteration-338 model was
+selected as the top-model reference across 2p/3p/4p. The frozen 19,456-game
+Astra ranking fit anchors random, heuristic, Opus, and Astra; held-out shared-core
+confirmation records fit the shared model to those opponents at 1,024 simulations.
+The rounded display ratings are 3419/2796/2672 for the shared model, with
+random=1000 and heuristic=2500 in each player count. These cross-campaign
+Bradley–Terry estimates are diagnostic, without confidence intervals. The
+formal shared-core promotion gate above remains recorded as unmet. The serving
+release is staged locally, with no AWS deployment.
+
+Evidence and method: [deployment readiness](deployment-readiness.md),
+[rating data](deployment-ratings.json).
+
+**October 12 play-scale revision:** the user chose a fixed comparison ladder
+for human results: random 1000, heuristic 2000, Opus 2250, Astra 2500, and the
+shared RL model 3000 in each player count. Human head-to-head fits are bounded
+to 1000–3500. The earlier evaluation-derived values above remain research
+diagnostics and are no longer the staged play display. No new strength claim or
+training result follows from the chosen anchor values. See
+[deployment readiness](deployment-readiness.md) for the serving algorithm.

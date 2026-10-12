@@ -7,6 +7,7 @@ import {
   FLOOR_PENALTIES,
   FLOOR_TARGET,
   TileSelection,
+  ScoreBreakdown,
   wallColumnForColor,
   CELL,
   CELL_GAP,
@@ -18,6 +19,9 @@ interface Props {
   player: PlayerState;
   playerIndex: number;
   isHuman: boolean;
+  opponentLabel?: string;
+  breakdown?: ScoreBreakdown;
+  ended: boolean;
   isCurrent: boolean;
   interactive?: boolean;
   selection?: TileSelection | null;
@@ -53,6 +57,9 @@ export function PlayerBoard({
   player,
   playerIndex,
   isHuman,
+  opponentLabel,
+  breakdown,
+  ended,
   isCurrent,
   interactive = false,
   selection = null,
@@ -222,14 +229,14 @@ export function PlayerBoard({
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
         <h4>
-          Player {playerIndex + 1} {isHuman && '(You)'}
+          Player {playerIndex + 1} {isHuman ? '(You)' : opponentLabel && `· ${opponentLabel}`}
         </h4>
         <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ffd54f' }}>
           {player.score} pts
         </span>
       </div>
 
-      <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-start' }}>
         <div>
           <div style={{ fontSize: '0.75rem', color: '#aaa', marginBottom: '0.25rem' }}>Pattern Lines</div>
           {[0, 1, 2, 3, 4].map(renderPatternRow)}
@@ -318,6 +325,25 @@ export function PlayerBoard({
           })}
         </div>
       </div>
+
+      {breakdown && (
+        <details className="score-breakdown" key={ended ? 'final' : 'active'} open={ended}>
+          <summary>Score breakdown</summary>
+          <dl>
+            <dt>Tile placement</dt><dd>{breakdown.placement}</dd>
+            <dt>Floor penalties applied</dt><dd>{breakdown.floor}</dd>
+            <dt>Completed rows</dt><dd>{breakdown.rows}</dd>
+            <dt>Completed columns</dt><dd>{breakdown.columns}</dd>
+            <dt>Complete color sets</dt><dd>{breakdown.colors}</dd>
+            {breakdown.earlier_rounds !== 0 && <>
+              <dt title="Placement and floor points from before score tracking was added">Earlier rounds</dt>
+              <dd>{breakdown.earlier_rounds}</dd>
+            </>}
+            <dt className="score-breakdown-total">Total</dt>
+            <dd className="score-breakdown-total">{breakdown.total}</dd>
+          </dl>
+        </details>
+      )}
     </div>
   );
 }
