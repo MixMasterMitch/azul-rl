@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import math
 from typing import Mapping
 
 from agent.train import ranking as R
@@ -44,12 +45,37 @@ def fit(results: list[dict], pc: int) -> float | None:
                         ("wins_a", "wins_b", "ties")) > 0]
     if not relevant:
         return None
-    rating = R.fit_ratings_for_pc(relevant, pc, anchors=POINTS,
-                                  use_reference_anchors=False).get("human")
     strongest = max(POINTS[row["b"] if row["a"] == "human" else row["a"]]
                     for row in relevant)
     ceiling = RUNGS[RUNGS.index(strongest) + 1]
-    return None if rating is None else min(ceiling, clamp(rating))
+    # All opponents are fixed anchors, leaving one free Bradley–Terry rating.
+    # Solve its monotone likelihood derivative directly. Torch's general LBFGS
+    # optimizer can add several seconds to the first completed Lambda game.
+    matches = []
+    for row in relevant:
+        wins_a = row.get(f"wins_a_{pc}p", 0)
+        wins_b = row.get(f"wins_b_{pc}p", 0)
+        ties = row.get(f"ties_{pc}p", 0)
+        opponent = row["b"] if row["a"] == "human" else row["a"]
+        human_score = (wins_a if row["a"] == "human" else wins_b) + ties / 2
+        matches.append((POINTS[opponent], human_score, wins_a + wins_b + ties))
+
+    def derivative(rating: float) -> float:
+        return sum(score - count / (1 + math.exp((anchor - rating) * math.log(10) / 1000))
+                   for anchor, score, count in matches)
+
+    if derivative(FLOOR) <= 0:
+        return FLOOR
+    if derivative(ceiling) >= 0:
+        return ceiling
+    low, high = FLOOR, ceiling
+    for _ in range(48):
+        middle = (low + high) / 2
+        if derivative(middle) > 0:
+            low = middle
+        else:
+            high = middle
+    return (low + high) / 2
 
 
 def _head_to_head(game: dict, human: int, bot: int) -> int:

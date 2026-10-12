@@ -29,6 +29,21 @@ def test_fixed_opponents_and_balanced_human_rating() -> None:
     assert public_profile(user, F.references())["rating_2p"] == 2250
 
 
+def test_fixed_fit_matches_general_bradley_terry_solver() -> None:
+    results = []
+    for opponent, wins, losses, ties in (
+        ("random", 8, 2, 0),
+        ("heuristic", 7, 5, 1),
+        ("heuristic_opus", 5, 6, 2),
+        ("astra", 3, 7, 1),
+    ):
+        R.add_match_result(results, "human", opponent, wins, losses,
+                           ties=ties, num_players=2)
+    general = R.fit_ratings_for_pc(results, 2, anchors=F.POINTS,
+                                   use_reference_anchors=False)["human"]
+    assert abs(F.fit(results, 2) - general) < 0.01
+
+
 def test_catalog_and_human_use_the_same_fixed_anchor(tmp_path: Path) -> None:
     path = tmp_path / "registry.json"
     path.write_text(json.dumps({"schema_version": 1, "models": {},
